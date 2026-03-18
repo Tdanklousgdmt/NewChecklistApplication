@@ -1,0 +1,307 @@
+
+<div id="erd" style="padding: 1rem 0; overflow-x: auto;"></div>
+<style>
+#erd svg { max-width: 100%; }
+</style>
+<script type="module">
+import mermaid from 'https://esm.sh/mermaid@11/dist/mermaid.esm.min.mjs';
+const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+await document.fonts.ready;
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'base',
+  fontFamily: '"Anthropic Sans", sans-serif',
+  themeVariables: {
+    darkMode: dark,
+    fontSize: '13px',
+    fontFamily: '"Anthropic Sans", sans-serif',
+    lineColor: dark ? '#9c9a92' : '#73726c',
+    textColor: dark ? '#c2c0b6' : '#3d3d3a',
+    primaryColor: dark ? '#2a2a3a' : '#e8e6fe',
+    primaryBorderColor: dark ? '#534AB7' : '#534AB7',
+    primaryTextColor: dark ? '#c2c0b6' : '#26215C',
+  },
+});
+
+const diagram = `erDiagram
+  USER {
+    uuid id PK
+    string badge_number
+    string full_name
+    string email
+    string role
+    int gamification_points
+    timestamp created_at
+  }
+
+  TEAM {
+    uuid id PK
+    string name
+    string description
+  }
+
+  USER_TEAM {
+    uuid user_id FK
+    uuid team_id FK
+  }
+
+  LOCATION {
+    uuid id PK
+    string site
+    string zone
+    string line
+  }
+
+  CATEGORY {
+    uuid id PK
+    string name
+    string color
+  }
+
+  CHECKLIST {
+    uuid id PK
+    string title
+    string status
+    string priority
+    string frequency
+    string cron_expression
+    date due_date
+    date start_date
+    boolean is_permanent
+    uuid category_id FK
+    uuid location_id FK
+    uuid created_by FK
+    int version
+    timestamp updated_at
+    timestamp created_at
+  }
+
+  CHECKLIST_ASSIGNMENT {
+    uuid id PK
+    uuid checklist_id FK
+    uuid user_id FK
+    uuid team_id FK
+    string assigned_type
+  }
+
+  SECTION {
+    uuid id PK
+    uuid checklist_id FK
+    string title
+    int order_index
+  }
+
+  QUESTION {
+    uuid id PK
+    uuid section_id FK
+    string type
+    string label
+    string help_text
+    boolean is_required
+    int order_index
+    json config
+    json conditional_logic
+  }
+
+  COMPONENT_LIBRARY {
+    uuid id PK
+    uuid created_by FK
+    string name
+    string type
+    json config
+  }
+
+  CHECKLIST_EXECUTION {
+    uuid id PK
+    uuid checklist_id FK
+    uuid executed_by FK
+    string status
+    timestamp started_at
+    timestamp completed_at
+    string offline_cache_id
+  }
+
+  ANSWER {
+    uuid id PK
+    uuid execution_id FK
+    uuid question_id FK
+    json value
+    timestamp answered_at
+    boolean is_flagged
+  }
+
+  ATTACHMENT {
+    uuid id PK
+    uuid answer_id FK
+    string file_url
+    string file_type
+    int file_size
+  }
+
+  SIGNATURE {
+    uuid id PK
+    uuid execution_id FK
+    uuid user_id FK
+    string signature_data
+    timestamp signed_at
+  }
+
+  TRIGGER_RULE {
+    uuid id PK
+    uuid checklist_id FK
+    string event_type
+    json conditions
+    json actions
+  }
+
+  TODO_ITEM {
+    uuid id PK
+    uuid user_id FK
+    uuid team_id FK
+    uuid checklist_id FK
+    uuid execution_id FK
+    string title
+    string status
+    string priority
+    timestamp due_at
+    timestamp snoozed_until
+  }
+
+  TAG {
+    uuid id PK
+    uuid checklist_id FK
+    uuid created_by FK
+    string title
+    string status
+    string description
+    timestamp created_at
+  }
+
+  IMMEDIATE_ACTION {
+    uuid id PK
+    uuid execution_id FK
+    uuid declared_by FK
+    string risk_level
+    string description
+    timestamp declared_at
+  }
+
+  EVENT_DECLARATION {
+    uuid id PK
+    uuid execution_id FK
+    uuid declared_by FK
+    string event_type
+    string label
+    string description
+    timestamp declared_at
+  }
+
+  NOTIFICATION {
+    uuid id PK
+    uuid user_id FK
+    string channel
+    string type
+    json payload
+    boolean is_read
+    timestamp sent_at
+  }
+
+  AUDIT_LOG {
+    uuid id PK
+    uuid entity_id FK
+    string entity_type
+    uuid user_id FK
+    string action
+    json diff
+    timestamp occurred_at
+  }
+
+  BADGE {
+    uuid id PK
+    string name
+    string description
+    string icon
+    string rule_type
+  }
+
+  USER_BADGE {
+    uuid user_id FK
+    uuid badge_id FK
+    timestamp earned_at
+  }
+
+  MES_LOG {
+    uuid id PK
+    uuid trigger_rule_id FK
+    uuid execution_id FK
+    string method
+    string endpoint
+    json payload
+    int status_code
+    boolean success
+    timestamp called_at
+  }
+
+  USER ||--o{ USER_TEAM : belongs_to
+  TEAM ||--o{ USER_TEAM : has
+  USER ||--o{ CHECKLIST : creates
+  CATEGORY ||--o{ CHECKLIST : categorizes
+  LOCATION ||--o{ CHECKLIST : located_at
+  CHECKLIST ||--o{ CHECKLIST_ASSIGNMENT : assigned_via
+  USER ||--o{ CHECKLIST_ASSIGNMENT : assigned_to
+  TEAM ||--o{ CHECKLIST_ASSIGNMENT : assigned_to
+  CHECKLIST ||--o{ SECTION : contains
+  SECTION ||--o{ QUESTION : contains
+  USER ||--o{ COMPONENT_LIBRARY : saves
+  CHECKLIST ||--o{ CHECKLIST_EXECUTION : executed_as
+  USER ||--o{ CHECKLIST_EXECUTION : executes
+  CHECKLIST_EXECUTION ||--o{ ANSWER : records
+  QUESTION ||--o{ ANSWER : answered_by
+  ANSWER ||--o{ ATTACHMENT : has
+  CHECKLIST_EXECUTION ||--o{ SIGNATURE : signed_by
+  USER ||--o{ SIGNATURE : provides
+  CHECKLIST ||--o{ TRIGGER_RULE : defines
+  TRIGGER_RULE ||--o{ MES_LOG : logs
+  CHECKLIST_EXECUTION ||--o{ MES_LOG : triggers
+  USER ||--o{ TODO_ITEM : owns
+  TEAM ||--o{ TODO_ITEM : assigned_to
+  CHECKLIST ||--o{ TODO_ITEM : linked_to
+  CHECKLIST ||--o{ TAG : has
+  USER ||--o{ TAG : creates
+  CHECKLIST_EXECUTION ||--o{ IMMEDIATE_ACTION : declares
+  USER ||--o{ IMMEDIATE_ACTION : declares
+  CHECKLIST_EXECUTION ||--o{ EVENT_DECLARATION : declares
+  USER ||--o{ EVENT_DECLARATION : declares
+  USER ||--o{ NOTIFICATION : receives
+  USER ||--o{ AUDIT_LOG : generates
+  USER ||--o{ USER_BADGE : earns
+  BADGE ||--o{ USER_BADGE : awarded_as
+`;
+
+const { svg } = await mermaid.render('erd-svg', diagram);
+document.getElementById('erd').innerHTML = svg;
+
+document.querySelectorAll('#erd svg.erDiagram .node').forEach(node => {
+  const firstPath = node.querySelector('path[d]');
+  if (!firstPath) return;
+  const d = firstPath.getAttribute('d');
+  const nums = d.match(/-?[\d.]+/g)?.map(Number);
+  if (!nums || nums.length < 8) return;
+  const xs = [nums[0], nums[2], nums[4], nums[6]];
+  const ys = [nums[1], nums[3], nums[5], nums[7]];
+  const x = Math.min(...xs), y = Math.min(...ys);
+  const w = Math.max(...xs) - x, h = Math.max(...ys) - y;
+  const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  rect.setAttribute('x', x); rect.setAttribute('y', y);
+  rect.setAttribute('width', w); rect.setAttribute('height', h);
+  rect.setAttribute('rx', '8');
+  for (const a of ['fill', 'stroke', 'stroke-width', 'class', 'style']) {
+    if (firstPath.hasAttribute(a)) rect.setAttribute(a, firstPath.getAttribute(a));
+  }
+  firstPath.replaceWith(rect);
+});
+
+document.querySelectorAll('#erd svg.erDiagram .row-rect-odd path, #erd svg.erDiagram .row-rect-even path').forEach(p => {
+  p.setAttribute('stroke', 'none');
+});
+</script>
