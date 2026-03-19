@@ -207,7 +207,7 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
   const filteredManagers = managers.filter(m => managerSearch === "" || m.name.toLowerCase().includes(managerSearch.toLowerCase()));
 
   const inputClass =
-    "w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-800 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-[#2abaad]/30 focus:border-[#2abaad] transition-all duration-150";
+    "w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-base text-gray-800 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-[#2abaad]/30 focus:border-[#2abaad] transition-all duration-150";
 
   const handleClear = () => {
     setTitle(""); setCategory(""); setValidFrom(""); setValidTo("");
@@ -1031,7 +1031,7 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
                       <div className="flex flex-col gap-1.5">
                         <span className="text-xs text-gray-500">Start at</span>
                         <div className="relative">
-                          <input type="time" value={startAt} onChange={(e) => setStartAt(e.target.value)} className="pl-3 pr-8 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#2abaad]/30 focus:border-[#2abaad] transition-all w-32" />
+                          <input type="time" value={startAt} onChange={(e) => setStartAt(e.target.value)} className="pl-3 pr-8 py-2 bg-white border border-gray-200 rounded-lg text-base text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#2abaad]/30 focus:border-[#2abaad] transition-all w-32" />
                           <Clock className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-300 pointer-events-none" />
                         </div>
                       </div>
@@ -1044,7 +1044,7 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
                         </div>
                         {validUntil === "TIME_PERIOD" && (
                           <div className="relative mt-1">
-                            <input type="time" value={validHour} onChange={(e) => setValidHour(e.target.value)} className="pl-3 pr-8 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#2abaad]/30 focus:border-[#2abaad] transition-all w-full" />
+                            <input type="time" value={validHour} onChange={(e) => setValidHour(e.target.value)} className="pl-3 pr-8 py-2 bg-white border border-gray-200 rounded-lg text-base text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#2abaad]/30 focus:border-[#2abaad] transition-all w-full" />
                             <Clock className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-300 pointer-events-none" />
                           </div>
                         )}
