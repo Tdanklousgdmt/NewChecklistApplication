@@ -381,8 +381,15 @@ export function ValidationScreen({ submissionId, onBack, onValidated }: Validati
 
   const loadSubmission = async () => {
     try {
-      const submissions = await checklistService.getSubmissions();
-      const sub = submissions.find((s: any) => s.id === submissionId);
+      // Load full submission payload (includes answers/media), not list metadata.
+      let sub = await checklistService.getSubmission(submissionId);
+
+      // Fallback for older/backward-compatible API behavior.
+      if (!sub) {
+        const submissions = await checklistService.getSubmissions();
+        sub = submissions.find((s: any) => s.id === submissionId) ?? null;
+      }
+
       if (sub) {
         setSubmission(sub);
         const checklistData = await checklistService.getChecklist(sub.checklistId);

@@ -190,6 +190,16 @@ export const checklistService = {
     return response.submissions;
   },
 
+  async getSubmission(submissionId: string): Promise<any | null> {
+    try {
+      const response = await apiFetch(`/submissions/${submissionId}`, { method: 'GET' });
+      return response.submission ?? null;
+    } catch (error) {
+      console.error('Error fetching submission:', error);
+      return null;
+    }
+  },
+
   async validateSubmission(submissionId: string, status: 'validated' | 'rejected', comments?: string): Promise<any> {
     const response = await apiFetch(`/submissions/${submissionId}/validate`, {
       method: 'PUT',
