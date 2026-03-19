@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { ChecklistDashboardReal } from "./components/ChecklistDashboardReal";
 import { ChecklistLibrary } from "./components/ChecklistLibrary";
 import { ChecklistDetail } from "./components/ChecklistDetail";
+import { ReportsPage } from "./components/ReportsPage";
 import { RoleSelection } from "./components/RoleSelection";
 import { ChecklistCreator } from "./components/ChecklistCreator";
 import { ChecklistExecution } from "./components/ChecklistExecution";
@@ -9,7 +10,7 @@ import { ValidationScreen } from "./components/ValidationScreen";
 import { NavDrawer } from "./components/NavDrawer";
 import { Toaster } from "sonner";
 
-type AppView = "dashboard" | "create" | "execute" | "validate" | "view" | "library" | "checklist-detail";
+type AppView = "dashboard" | "create" | "execute" | "validate" | "view" | "library" | "checklist-detail" | "reports";
 
 export default function App() {
   const [role, setRole] = useState<"user" | "manager" | null>(null);
@@ -41,7 +42,7 @@ export default function App() {
 
   const openNav = () => setNavOpen(true);
 
-  const handleNavNavigate = (dest: "dashboard" | "library" | "create") => {
+  const handleNavNavigate = (dest: "dashboard" | "library" | "create" | "reports") => {
     setActiveChecklistId(null);
     setActiveAssignmentId(null);
     setActiveSubmissionId(null);
@@ -125,6 +126,19 @@ export default function App() {
     );
   }
 
+  if (view === "reports") {
+    return (
+      <>
+        {navDrawer}
+        <ReportsPage
+          onOpenNav={openNav}
+          onViewChecklist={(id) => { setActiveChecklistId(id); setView("checklist-detail"); }}
+        />
+        <Toaster position="top-right" richColors />
+      </>
+    );
+  }
+
   if (view === "library") {
     return (
       <>
@@ -154,6 +168,7 @@ export default function App() {
         onViewChecklist={(checklistId) => { setActiveChecklistId(checklistId); setView("view"); }}
         onValidateSubmission={(submissionId) => { setActiveSubmissionId(submissionId); setView("validate"); }}
         onOpenLibrary={() => setView("library")}
+        onOpenReports={() => setView("reports")}
         onOpenNav={openNav}
       />
       <Toaster position="top-right" richColors />

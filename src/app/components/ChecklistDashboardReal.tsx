@@ -19,6 +19,7 @@ import {
   Save,
   ChevronDown,
   Menu,
+  BarChart3,
 } from "lucide-react";
 import { checklistService } from "../services/checklistService";
 import { CalendarView } from "./CalendarView";
@@ -31,6 +32,7 @@ interface ChecklistDashboardProps {
   onValidateSubmission?: (submissionId: string) => void;
   onOpenLibrary?: () => void;
   onOpenNav?: () => void;
+  onOpenReports?: () => void;
 }
 
 export function ChecklistDashboardReal({
@@ -41,6 +43,7 @@ export function ChecklistDashboardReal({
   onValidateSubmission,
   onOpenLibrary,
   onOpenNav,
+  onOpenReports,
 }: ChecklistDashboardProps) {
   const [loading, setLoading] = useState(true);
   const [refreshingValidations, setRefreshingValidations] = useState(false);
@@ -204,6 +207,16 @@ export function ChecklistDashboardReal({
             >
               <BookOpen className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Library</span>
+            </button>
+          )}
+          {role === "manager" && onOpenReports && (
+            <button
+              type="button"
+              onClick={onOpenReports}
+              className="flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl text-xs tracking-wide hover:bg-gray-50 transition-colors"
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Reports</span>
             </button>
           )}
           <button

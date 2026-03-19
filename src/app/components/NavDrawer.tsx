@@ -8,9 +8,10 @@ import {
   ChevronRight,
   UserCircle,
   ShieldCheck,
+  BarChart3,
 } from "lucide-react";
 
-type View = "dashboard" | "library" | "create";
+type View = "dashboard" | "library" | "create" | "reports";
 
 interface NavDrawerProps {
   open: boolean;
@@ -31,6 +32,12 @@ const NAV_ITEMS: { view: View; label: string; icon: React.ReactNode; managerOnly
     view: "library",
     label: "Checklist Library",
     icon: <Library className="w-5 h-5" />,
+    managerOnly: true,
+  },
+  {
+    view: "reports",
+    label: "Plant Reports",
+    icon: <BarChart3 className="w-5 h-5" />,
     managerOnly: true,
   },
   {
@@ -61,7 +68,8 @@ export function NavDrawer({
 
   const isActive = (view: View) =>
     currentView === view ||
-    (view === "library" && currentView === "checklist-detail");
+    (view === "library" && currentView === "checklist-detail") ||
+    (view === "reports"  && currentView === "reports");
 
   return (
     <>
