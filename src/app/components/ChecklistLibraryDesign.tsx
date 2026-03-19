@@ -139,11 +139,13 @@ const CATEGORIES = ["All Categories", "Safety", "Maintenance", "Quality", "Compl
 interface ChecklistLibraryDesignProps {
   onCreateNew?: () => void;
   onBack?: () => void;
+  onViewDetail?: (id: string) => void;
 }
 
 export function ChecklistLibraryDesign({
   onCreateNew,
   onBack: _onBack,
+  onViewDetail,
 }: ChecklistLibraryDesignProps) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "published" | "draft">("all");
@@ -365,6 +367,7 @@ export function ChecklistLibraryDesign({
                     onDeleteRequest={() => setDeleteConfirmId(checklist.id)}
                     onDeleteCancel={() => setDeleteConfirmId(null)}
                     onDeleteConfirm={() => setDeleteConfirmId(null)}
+                    onViewDetail={() => onViewDetail?.(checklist.id)}
                   />
                 ))}
               </div>
@@ -434,12 +437,14 @@ function ChecklistRow({
   onDeleteRequest,
   onDeleteCancel,
   onDeleteConfirm,
+  onViewDetail,
 }: {
   checklist: MockChecklist;
   deleteConfirm: boolean;
   onDeleteRequest: () => void;
   onDeleteCancel: () => void;
   onDeleteConfirm: () => void;
+  onViewDetail?: () => void;
 }) {
   const isPublished = checklist.status === "published";
 
@@ -497,8 +502,14 @@ function ChecklistRow({
       <div className="hidden sm:grid grid-cols-[minmax(0,1fr)_110px_120px_80px_200px] gap-4 items-center px-6 py-4 hover:bg-gray-50/60 transition-colors">
 
         {/* Title + meta */}
-        <div className="min-w-0">
-          <p className="font-medium text-gray-800 truncate mb-0.5">{checklist.title}</p>
+        <button
+          type="button"
+          onClick={onViewDetail}
+          className="min-w-0 text-left group/title"
+        >
+          <p className="font-medium text-gray-800 truncate mb-0.5 group-hover/title:text-[#2abaad] transition-colors">
+            {checklist.title}
+          </p>
           <p className="text-xs text-gray-400 truncate">{checklist.description}</p>
           <div className="flex items-center gap-2 mt-1.5">
             <span className="flex items-center gap-1 text-[10px] text-gray-400">
@@ -511,7 +522,7 @@ function ChecklistRow({
               {checklist.updatedAt}
             </span>
           </div>
-        </div>
+        </button>
 
         {/* Status */}
         <div>{statusBadge}</div>
@@ -559,8 +570,8 @@ function ChecklistRow({
 
         {/* Title + badges row */}
         <div className="flex items-start justify-between gap-2 mb-2">
-          <div className="min-w-0 flex-1">
-            <p className="font-medium text-gray-800 leading-snug mb-1.5">{checklist.title}</p>
+          <button type="button" onClick={onViewDetail} className="min-w-0 flex-1 text-left">
+            <p className="font-medium text-gray-800 leading-snug mb-1.5 hover:text-[#2abaad] transition-colors">{checklist.title}</p>
             <div className="flex flex-wrap items-center gap-1.5">
               {statusBadge}
               <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-600">
@@ -568,7 +579,7 @@ function ChecklistRow({
               </span>
               <span className="text-xs font-mono text-gray-400">{checklist.version}</span>
             </div>
-          </div>
+          </button>
         </div>
 
         {/* Description + meta */}

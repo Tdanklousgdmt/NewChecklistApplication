@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { ChecklistDashboardReal } from "./components/ChecklistDashboardReal";
 import { ChecklistLibraryDesign } from "./components/ChecklistLibraryDesign";
+import { ChecklistDetailDesign } from "./components/ChecklistDetailDesign";
 import { RoleSelection } from "./components/RoleSelection";
 import { ChecklistCreator } from "./components/ChecklistCreator";
 import { ChecklistExecution } from "./components/ChecklistExecution";
@@ -9,7 +10,7 @@ import { Toaster } from "sonner";
 
 export default function App() {
   const [role, setRole] = useState<"user" | "manager" | null>(null);
-  const [view, setView] = useState<"dashboard" | "create" | "execute" | "validate" | "view" | "library">("dashboard");
+  const [view, setView] = useState<"dashboard" | "create" | "execute" | "validate" | "view" | "library" | "checklist-detail">("dashboard");
 
   // Navigation state
   const [activeChecklistId, setActiveChecklistId] = useState<string | null>(null);
@@ -105,6 +106,16 @@ export default function App() {
     );
   }
 
+  // Checklist detail design preview
+  if (view === "checklist-detail") {
+    return (
+      <>
+        <ChecklistDetailDesign onBack={() => setView("library")} />
+        <Toaster position="top-right" richColors />
+      </>
+    );
+  }
+
   // Library design preview
   if (view === "library") {
     return (
@@ -112,6 +123,7 @@ export default function App() {
         <ChecklistLibraryDesign
           onCreateNew={() => setView("create")}
           onBack={() => setView("dashboard")}
+          onViewDetail={() => setView("checklist-detail")}
         />
         <Toaster position="top-right" richColors />
       </>
