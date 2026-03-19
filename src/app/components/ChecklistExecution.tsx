@@ -1664,12 +1664,17 @@ export function ChecklistExecution({ checklistId, assignmentId, onBack, onSubmit
           isMobileNotOk || isMobileBlocked ? "border-red-300 shadow-red-50" : hasError ? "border-red-200" : isAnswered ? "border-teal-100" : "border-gray-100"
         }`}
       >
-        {/* Answered indicator */}
-        {isAnswered && !hasError && (
-          <div className="absolute top-3.5 right-3.5 w-6 h-6 bg-teal-500 rounded-full flex items-center justify-center z-10 shadow-sm">
-            <Check className="w-3.5 h-3.5 text-white" />
-          </div>
-        )}
+        {/* Keep node stable to avoid mobile input blur on re-render */}
+        <div
+          className={`absolute top-3.5 right-3.5 w-6 h-6 rounded-full flex items-center justify-center z-10 shadow-sm transition-opacity ${
+            isAnswered && !hasError
+              ? "bg-teal-500 opacity-100"
+              : "bg-transparent opacity-0 pointer-events-none"
+          }`}
+          aria-hidden={!isAnswered || hasError}
+        >
+          <Check className="w-3.5 h-3.5 text-white" />
+        </div>
         {/* Field index badge */}
         {fieldIndex !== undefined && (
           <div className={`absolute top-3.5 left-3.5 w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold z-10 ${
