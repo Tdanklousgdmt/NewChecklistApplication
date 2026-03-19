@@ -3,6 +3,8 @@ import { DndProvider, useDrag, useDrop } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { SectionCard } from "./SectionCard";
 import { FieldConfigPanels } from "./FieldConfigPanels";
+import { TriggerBuilder } from "./TriggerBuilder";
+import { Trigger } from "../types/triggers";
 import {
   ChevronRight,
   ChevronLeft,
@@ -47,6 +49,7 @@ import {
   Ruler,
   Target,
   Square,
+  Zap,
 } from "lucide-react";
 
 // ── DnD constants ──────────────────────────────────────────────────
@@ -223,6 +226,8 @@ export interface CanvasField {
     fieldUid: string;
     buttonId: string;
   };
+  // Trigger system
+  triggers?: Trigger[];
 }
 
 // ── Library field (saved customised component) ─────────────────────
@@ -363,6 +368,7 @@ interface CanvasCardProps {
   onRemoveFromSection?: (sectionUid: string, childUid: string) => void;
   selectedChildUid?: string;
   onSelectChild?: (uid: string) => void;
+  allFields?: CanvasField[];
 }
 
 function CanvasCard({
@@ -375,12 +381,15 @@ function CanvasCard({
   onRemoveFromSection,
   selectedChildUid,
   onSelectChild,
+  allFields,
 }: CanvasCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const gripRef = useRef<HTMLSpanElement>(null);
   const c = CAT_COLORS[field.category];
   const [justSaved, setJustSaved] = useState(false);
+  const [configTab, setConfigTab] = useState<"properties" | "triggers">("properties");
   const saved = isInLibrary(field.uid);
+  const triggerCount = field.triggers?.length ?? 0;
 
   const [{ isDragging }, drag, dragPreview] = useDrag(
     () => ({
@@ -527,6 +536,17 @@ function CanvasCard({
           {field.required ? "Required" : "Optional"}
         </button>
 
+        {/* Trigger badge */}
+        {triggerCount > 0 && (
+          <span
+            title={`${triggerCount} trigger${triggerCount !== 1 ? "s" : ""} configured`}
+            className="shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-600 text-[9px] font-bold"
+          >
+            <Zap className="w-2.5 h-2.5" />
+            {triggerCount}
+          </span>
+        )}
+
         {/* Save to Library */}
         <button
           type="button"
@@ -561,9 +581,55 @@ function CanvasCard({
         </button>
       </div>
 
-      {/* Properties - Only show when selected */}
+      {/* Config panel — tabbed: Properties / Triggers */}
       {isSelected && (
-        <div className="px-4 py-3 bg-teal-50/30 border-2 border-t-0 border-[#2abaad] rounded-b-xl">
+        <div className="bg-teal-50/30 border-2 border-t-0 border-[#2abaad] rounded-b-xl overflow-hidden">
+          {/* Tab bar */}
+          <div className="flex border-b border-[#2abaad]/20">
+            <button
+              type="button"
+              onClick={() => setConfigTab("properties")}
+              className={`flex-1 py-2 text-[11px] font-semibold tracking-wide transition-colors ${
+                configTab === "properties"
+                  ? "bg-white text-[#2abaad] border-b-2 border-[#2abaad]"
+                  : "text-gray-400 hover:text-gray-600"
+              }`}
+            >
+              Properties
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfigTab("triggers")}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-[11px] font-semibold tracking-wide transition-colors ${
+                configTab === "triggers"
+                  ? "bg-white text-orange-500 border-b-2 border-orange-400"
+                  : "text-gray-400 hover:text-orange-400"
+              }`}
+            >
+              <Zap className="w-3 h-3" />
+              Triggers
+              {triggerCount > 0 && (
+                <span className="ml-0.5 px-1 py-px bg-orange-100 text-orange-600 rounded-full text-[9px] font-bold">
+                  {triggerCount}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* Triggers tab */}
+          {configTab === "triggers" && (
+            <div className="px-4 py-4">
+              <TriggerBuilder
+                field={field}
+                allFields={allFields ?? []}
+                onUpdate={(triggers) => onUpdateField!(field.uid, { triggers })}
+              />
+            </div>
+          )}
+
+          {/* Properties tab */}
+          {configTab === "properties" && (
+          <div className="px-4 py-3">
           <div className="flex flex-col gap-4">
             {/* Title */}
             <div>
@@ -813,6 +879,8 @@ function CanvasCard({
               </div>
             )}
           </div>
+          </div>
+          )}
         </div>
       )}
     </div>
@@ -881,13 +949,360 @@ function PaletteDropZone({
   );
 }
 
-// ── Main component ─────────────────────────────────────────────────
+// ── Mobile Step 2 ──────────────────────────────────────────────────
 interface ChecklistStep2Props {
   onBack?: () => void;
   onNext?: () => void;
   canvasFields: CanvasField[];
   setCanvasFields: React.Dispatch<React.SetStateAction<CanvasField[]>>;
 }
+
+function Step2Mobile({ onBack, onNext, canvasFields, setCanvasFields }: ChecklistStep2Props) {
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [activeCategory, setActiveCategory] = useState<CategoryKey>("basic");
+  const [search, setSearch] = useState("");
+  const [configField, setConfigField] = useState<string | null>(null);
+
+  const handleAdd = (fieldType: FieldTypeDef) => {
+    setCanvasFields((prev) => [
+      ...prev,
+      { uid: genUid(), typeId: fieldType.id, label: fieldType.label, icon: fieldType.icon, category: fieldType.category, required: false },
+    ]);
+    setPaletteOpen(false);
+  };
+
+  const handleDelete = (uid: string) => {
+    setCanvasFields((prev) => prev.filter((f) => f.uid !== uid));
+    if (configField === uid) setConfigField(null);
+  };
+
+  const handleMove = (uid: string, dir: -1 | 1) => {
+    setCanvasFields((prev) => {
+      const idx = prev.findIndex((f) => f.uid === uid);
+      if (idx < 0) return prev;
+      const next = [...prev];
+      const swapIdx = idx + dir;
+      if (swapIdx < 0 || swapIdx >= next.length) return prev;
+      [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
+      return next;
+    });
+  };
+
+  const handleUpdateLabel = (uid: string, label: string) =>
+    setCanvasFields((prev) => prev.map((f) => f.uid === uid ? { ...f, label } : f));
+
+  const handleToggleRequired = (uid: string) =>
+    setCanvasFields((prev) => prev.map((f) => f.uid === uid ? { ...f, required: !f.required } : f));
+
+  const handleUpdateField = (uid: string, updates: Partial<CanvasField>) =>
+    setCanvasFields((prev) => prev.map((f) => f.uid === uid ? { ...f, ...updates } : f));
+
+  const filteredTypes = FIELD_TYPES.filter((f) =>
+    search
+      ? f.label.toLowerCase().includes(search.toLowerCase()) || f.description.toLowerCase().includes(search.toLowerCase())
+      : f.category === activeCategory
+  );
+
+  const requiredCount = canvasFields.filter((f) => f.required).length;
+  const inputClass = "w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-700 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-[#2abaad]/20 focus:border-[#2abaad] transition-all";
+
+  return (
+    <div className="h-screen bg-gray-50 flex flex-col overflow-hidden">
+
+      {/* Sticky header */}
+      <header className="sticky top-0 z-30 bg-white border-b border-gray-100 shadow-sm shrink-0">
+        <div className="flex items-center justify-between px-4 py-3">
+          <button type="button" onClick={onBack} className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100 active:bg-gray-200 transition-colors">
+            <ChevronLeft className="w-5 h-5 text-gray-600" />
+          </button>
+          <div className="text-center">
+            <p className="text-sm font-semibold text-gray-800">Build Checklist</p>
+            <p className="text-[11px] text-gray-400">Step 2 of 3</p>
+          </div>
+          <div className="w-9 h-9" />
+        </div>
+        <div className="flex gap-1.5 px-4 pb-3">
+          <div className="flex-1 h-1 rounded-full bg-[#2abaad]" />
+          <div className="flex-1 h-1 rounded-full bg-[#2abaad]" />
+          <div className="flex-1 h-1 rounded-full bg-gray-200" />
+        </div>
+      </header>
+
+      {/* Scrollable canvas */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 pb-36">
+
+        {/* Stats bar */}
+        {canvasFields.length > 0 && (
+          <div className="flex items-center gap-2 mb-4">
+            <span className="px-2.5 py-1 bg-white border border-gray-200 rounded-full text-xs text-gray-500 shadow-sm">
+              {canvasFields.length} field{canvasFields.length !== 1 ? "s" : ""}
+            </span>
+            <span className="px-2.5 py-1 bg-teal-50 border border-teal-200 rounded-full text-xs text-[#2abaad]">
+              {requiredCount} required
+            </span>
+            <button type="button" onClick={() => setCanvasFields([])}
+              className="ml-auto px-2.5 py-1 rounded-full text-xs text-gray-400 bg-white border border-gray-200 flex items-center gap-1 active:bg-gray-50">
+              <RotateCcw className="w-3 h-3" /> Clear
+            </button>
+          </div>
+        )}
+
+        {/* Empty state */}
+        {canvasFields.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-20 text-center px-8">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-teal-50 to-teal-100 flex items-center justify-center mb-4 shadow-sm">
+              <Plus className="w-7 h-7 text-[#2abaad]" />
+            </div>
+            <p className="text-sm font-medium text-gray-600 mb-1.5">No fields yet</p>
+            <p className="text-xs text-gray-400 leading-relaxed mb-5">
+              Tap <span className="text-[#2abaad] font-medium">+ Add Field</span> below to start building
+            </p>
+            <div className="flex flex-wrap gap-1.5 justify-center">
+              {["Short Text", "Checkbox", "Photo", "Date", "Yes / No"].map((l) => (
+                <span key={l} className="px-2.5 py-1 bg-white border border-gray-200 rounded-full text-[11px] text-gray-400">{l}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Field cards */}
+        <div className="flex flex-col gap-2.5">
+          {canvasFields.map((field, idx) => {
+            const c = CAT_COLORS[field.category];
+            const isOpen = configField === field.uid;
+            return (
+              <div key={field.uid} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                {/* Row */}
+                <div
+                  className={`flex items-center gap-3 px-4 py-3.5 cursor-pointer transition-colors ${isOpen ? "bg-teal-50/40" : "active:bg-gray-50"}`}
+                  onClick={() => setConfigField(isOpen ? null : field.uid)}
+                >
+                  <span className="w-5 h-5 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center text-[10px] shrink-0 font-medium">{idx + 1}</span>
+                  <span className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${c.bg} ${c.text}`}>{getFieldIcon(field.typeId)}</span>
+                  <span className="flex-1 text-sm font-medium text-gray-700 truncate">{field.label || "Untitled"}</span>
+                  <button type="button" onClick={(e) => { e.stopPropagation(); handleToggleRequired(field.uid); }}
+                    className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-all ${field.required ? "bg-[#2abaad] text-white border-[#2abaad]" : "bg-white text-gray-400 border-gray-200"}`}>
+                    {field.required ? "Req." : "Opt."}
+                  </button>
+                  <ChevronDown className={`w-4 h-4 text-gray-400 shrink-0 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
+                </div>
+
+                {/* Config panel */}
+                {isOpen && (
+                  <div className="border-t border-teal-100 bg-teal-50/20 px-4 py-4 flex flex-col gap-4">
+                    {/* Move + Delete */}
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => handleMove(field.uid, -1)} disabled={idx === 0}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-white border border-gray-200 text-xs text-gray-500 disabled:opacity-30 active:bg-gray-50">
+                        <ChevronUp className="w-3.5 h-3.5" /> Move Up
+                      </button>
+                      <button type="button" onClick={() => handleMove(field.uid, 1)} disabled={idx === canvasFields.length - 1}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-white border border-gray-200 text-xs text-gray-500 disabled:opacity-30 active:bg-gray-50">
+                        <ChevronDown className="w-3.5 h-3.5" /> Move Down
+                      </button>
+                      <button type="button" onClick={() => handleDelete(field.uid)}
+                        className="w-10 h-9 flex items-center justify-center rounded-xl bg-red-50 border border-red-200 text-red-400 active:bg-red-100 shrink-0">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Label */}
+                    <div>
+                      <label className="block text-[10px] text-gray-500 uppercase tracking-wide mb-1.5">Field Label</label>
+                      <input type="text" value={field.label} onChange={(e) => handleUpdateLabel(field.uid, e.target.value)} placeholder="Enter field label…" className={inputClass} />
+                    </div>
+
+                    {/* Placeholder */}
+                    {(field.typeId === "short_text" || field.typeId === "long_text" || field.typeId === "number") && (
+                      <div>
+                        <label className="block text-[10px] text-gray-500 uppercase tracking-wide mb-1.5">Placeholder</label>
+                        <input type="text" value={field.placeholder || ""} onChange={(e) => handleUpdateField(field.uid, { placeholder: e.target.value })} placeholder="Placeholder text…" className={inputClass} />
+                      </div>
+                    )}
+
+                    {/* Help Text */}
+                    <div>
+                      <label className="block text-[10px] text-gray-500 uppercase tracking-wide mb-1.5">Help Text</label>
+                      <textarea value={field.helpText || ""} onChange={(e) => handleUpdateField(field.uid, { helpText: e.target.value })} placeholder="Add helpful instructions…" rows={2} className={inputClass} />
+                    </div>
+
+                    {/* Dropdown options */}
+                    {field.typeId === "dropdown" && (
+                      <div>
+                        <label className="block text-[10px] text-gray-500 uppercase tracking-wide mb-1.5">Options</label>
+                        <div className="flex flex-col gap-2">
+                          {(field.options || []).map((opt, i) => (
+                            <div key={i} className="flex items-center gap-2">
+                              <input type="text" value={opt} onChange={(e) => { const n = [...(field.options||[])]; n[i]=e.target.value; handleUpdateField(field.uid,{options:n}); }} placeholder={`Option ${i+1}`} className={inputClass} />
+                              <button type="button" onClick={() => { const n=[...(field.options||[])]; n.splice(i,1); handleUpdateField(field.uid,{options:n}); }} className="w-9 h-9 flex items-center justify-center rounded-xl bg-red-50 text-red-400 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
+                            </div>
+                          ))}
+                          <button type="button" onClick={() => handleUpdateField(field.uid, { options: [...(field.options||[]), ""] })}
+                            className="flex items-center justify-center gap-1.5 py-2.5 border-2 border-dashed border-gray-200 rounded-xl text-xs text-gray-400 active:bg-gray-50">
+                            <Plus className="w-3.5 h-3.5" /> Add Option
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Number min/max */}
+                    {field.typeId === "number" && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[10px] text-gray-500 uppercase tracking-wide mb-1.5">Min</label>
+                          <input type="number" value={field.minValue??""} onChange={(e)=>handleUpdateField(field.uid,{minValue:e.target.value?Number(e.target.value):undefined})} placeholder="Min" className={inputClass} />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-gray-500 uppercase tracking-wide mb-1.5">Max</label>
+                          <input type="number" value={field.maxValue??""} onChange={(e)=>handleUpdateField(field.uid,{maxValue:e.target.value?Number(e.target.value):undefined})} placeholder="Max" className={inputClass} />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Rating */}
+                    {field.typeId === "rating" && (
+                      <div>
+                        <label className="block text-[10px] text-gray-500 uppercase tracking-wide mb-1.5">Max Stars</label>
+                        <input type="number" value={field.maxRating??5} min={2} max={10} onChange={(e)=>handleUpdateField(field.uid,{maxRating:Number(e.target.value)||5})} className={inputClass} />
+                      </div>
+                    )}
+
+                    {/* Date/Time default now */}
+                    {(field.typeId==="date"||field.typeId==="time"||field.typeId==="datetime") && (
+                      <div className="flex items-center gap-3 px-3 py-3 bg-white border border-gray-200 rounded-xl cursor-pointer" onClick={()=>handleUpdateField(field.uid,{defaultToNow:!field.defaultToNow})}>
+                        <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center ${field.defaultToNow?"bg-[#2abaad] border-[#2abaad]":"border-gray-300"}`}>
+                          {field.defaultToNow && <CheckCircle2 className="w-3 h-3 text-white" />}
+                        </div>
+                        <span className="text-xs text-gray-600">Default to current {field.typeId==="date"?"date":field.typeId==="time"?"time":"date & time"}</span>
+                      </div>
+                    )}
+
+                    {/* Temperature */}
+                    {field.typeId==="temperature" && (
+                      <div>
+                        <label className="block text-[10px] text-gray-500 uppercase tracking-wide mb-1.5">Unit</label>
+                        <div className="flex gap-2">
+                          {(["celsius","fahrenheit"] as const).map((u)=>(
+                            <button key={u} type="button" onClick={()=>handleUpdateField(field.uid,{unit:u})}
+                              className={`flex-1 py-2.5 rounded-xl text-xs font-semibold transition-all ${(field.unit||"celsius")===u?"bg-[#2abaad] text-white":"bg-white border border-gray-200 text-gray-500"}`}>
+                              {u==="celsius"?"°C":"°F"}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Long text rows */}
+                    {field.typeId==="long_text" && (
+                      <div>
+                        <label className="block text-[10px] text-gray-500 uppercase tracking-wide mb-1.5">Rows</label>
+                        <input type="number" value={field.rows??3} min={2} max={10} onChange={(e)=>handleUpdateField(field.uid,{rows:Number(e.target.value)||3})} className={inputClass} />
+                      </div>
+                    )}
+
+                    {/* Category badge */}
+                    <div className="flex items-center gap-2 pt-1">
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${c.bg} ${c.text}`}>{CAT_LABELS[field.category]}</span>
+                      <span className="text-[10px] text-gray-400">{FIELD_TYPES.find(f=>f.id===field.typeId)?.description}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Fixed bottom bar */}
+      <div className="fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-gray-100 px-4 py-3 shadow-lg">
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={onBack} className="w-10 h-10 flex items-center justify-center rounded-2xl bg-gray-100 active:bg-gray-200">
+            <ChevronLeft className="w-5 h-5 text-gray-600" />
+          </button>
+          <button type="button" onClick={() => setPaletteOpen(true)}
+            className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-[#2abaad]/10 border-2 border-dashed border-[#2abaad]/40 text-[#2abaad] text-sm font-semibold active:bg-[#2abaad]/20">
+            <Plus className="w-4 h-4" /> Add Field
+          </button>
+          <button type="button" onClick={onNext} disabled={canvasFields.length === 0}
+            className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-[#2abaad] text-white text-sm font-semibold active:bg-[#24a699] shadow-md shadow-teal-200 disabled:opacity-40">
+            Next <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Palette bottom sheet */}
+      {paletteOpen && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setPaletteOpen(false)} />
+          <div className="relative bg-white rounded-t-3xl shadow-2xl flex flex-col max-h-[80vh]">
+            {/* Handle */}
+            <div className="flex justify-center pt-3 pb-1 shrink-0"><div className="w-10 h-1 rounded-full bg-gray-200" /></div>
+            {/* Header */}
+            <div className="px-4 py-3 flex items-center justify-between shrink-0 border-b border-gray-100">
+              <p className="text-sm font-semibold text-gray-800">Add a Field</p>
+              <button type="button" onClick={() => setPaletteOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-xl bg-gray-100 active:bg-gray-200">
+                <X className="w-4 h-4 text-gray-500" />
+              </button>
+            </div>
+            {/* Search */}
+            <div className="px-4 py-3 shrink-0">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 pointer-events-none" />
+                <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search fields…"
+                  className="w-full pl-9 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-700 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-[#2abaad]/20 focus:border-[#2abaad] transition-all" />
+                {search && <button type="button" onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2"><X className="w-3.5 h-3.5 text-gray-400" /></button>}
+              </div>
+            </div>
+            {/* Category tabs */}
+            {!search && (
+              <div className="px-4 shrink-0">
+                <div className="flex gap-1.5 overflow-x-auto pb-3" style={{ scrollbarWidth: "none" }}>
+                  {CATEGORIES.map((cat) => {
+                    const c = CAT_COLORS[cat];
+                    return (
+                      <button key={cat} type="button" onClick={() => setActiveCategory(cat)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 transition-all ${activeCategory === cat ? `${c.bg} ${c.text}` : "bg-gray-100 text-gray-500"}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
+                        {CAT_LABELS[cat]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {/* Field grid */}
+            <div className="overflow-y-auto px-4 pb-8">
+              {filteredTypes.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 py-10 text-center">
+                  <AlertCircle className="w-6 h-6 text-gray-200" />
+                  <p className="text-xs text-gray-400">No fields match "{search}"</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2.5">
+                  {filteredTypes.map((ft) => {
+                    const c = CAT_COLORS[ft.category];
+                    return (
+                      <button key={ft.id} type="button" onClick={() => handleAdd(ft)}
+                        className="flex items-center gap-3 px-3 py-3.5 bg-white border border-gray-100 rounded-2xl text-left active:bg-gray-50 active:border-[#2abaad]/30 shadow-sm transition-all">
+                        <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${c.bg} ${c.text}`}>{ft.icon}</span>
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-gray-700 leading-tight">{ft.label}</p>
+                          <p className="text-[10px] text-gray-400 leading-tight mt-0.5 truncate">{ft.description}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main component ─────────────────────────────────────────────────
 
 function Step2Inner({ onBack, onNext, canvasFields, setCanvasFields }: ChecklistStep2Props) {
   const [search, setSearch] = useState("");
@@ -1046,9 +1461,10 @@ function Step2Inner({ onBack, onNext, canvasFields, setCanvasFields }: Checklist
   );
 
   const requiredCount = canvasFields.filter((f) => f.required).length;
+  const triggerTotal = canvasFields.reduce((sum, f) => sum + (f.triggers?.length ?? 0), 0);
 
   return (
-    <div className="h-screen bg-gradient-to-br from-slate-50 via-white to-teal-50/30 flex flex-col overflow-hidden">
+    <div className="hidden sm:flex h-screen bg-gradient-to-br from-slate-50 via-white to-teal-50/30 flex-col overflow-hidden">
 
       {/* ── Header ── */}
       <header className="sticky top-0 z-50 bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between shadow-sm shrink-0">
@@ -1217,6 +1633,11 @@ function Step2Inner({ onBack, onNext, canvasFields, setCanvasFields }: Checklist
                   <span className="w-px h-3.5 bg-gray-200" />
                   <span className="px-2 py-0.5 bg-[#2abaad]/10 text-[#2abaad] rounded-full text-[10px]">{requiredCount} required</span>
                   <span className="px-2 py-0.5 bg-gray-100 text-gray-400 rounded-full text-[10px]">{canvasFields.length - requiredCount} optional</span>
+                  {triggerTotal > 0 && (
+                    <span className="flex items-center gap-1 px-2 py-0.5 bg-orange-100 text-orange-600 rounded-full text-[10px]">
+                      <Zap className="w-2.5 h-2.5" />{triggerTotal} trigger{triggerTotal !== 1 ? "s" : ""}
+                    </span>
+                  )}
                 </>
               )}
             </div>
@@ -1253,6 +1674,7 @@ function Step2Inner({ onBack, onNext, canvasFields, setCanvasFields }: Checklist
                   onRemoveFromSection={handleRemoveFromSection}
                   selectedChildUid={selectedChildUid}
                   onSelectChild={setSelectedChildUid}
+                  allFields={canvasFields}
                 />
               ))}
             </PaletteDropZone>
@@ -1287,8 +1709,15 @@ function Step2Inner({ onBack, onNext, canvasFields, setCanvasFields }: Checklist
 
 export function ChecklistStep2(props: ChecklistStep2Props) {
   return (
-    <DndProvider backend={HTML5Backend}>
-      <Step2Inner {...props} />
-    </DndProvider>
+    <>
+      {/* Mobile */}
+      <div className="block sm:hidden">
+        <Step2Mobile {...props} />
+      </div>
+      {/* Desktop */}
+      <DndProvider backend={HTML5Backend}>
+        <Step2Inner {...props} />
+      </DndProvider>
+    </>
   );
 }

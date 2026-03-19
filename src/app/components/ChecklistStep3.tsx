@@ -382,8 +382,295 @@ export function ChecklistStep3({ onBack, onPublish, canvasFields, metadata = {} 
     );
   };
 
+  // ─── MOBILE LAYOUT ───────────────────────────────────────────────
+  const mobileLayout = (
+    <div className="block sm:hidden min-h-screen bg-gray-50 flex flex-col">
+
+      {/* Sticky header */}
+      <header className="sticky top-0 z-30 bg-white border-b border-gray-100 shadow-sm shrink-0">
+        <div className="flex items-center justify-between px-4 py-3">
+          <button type="button" onClick={onBack} className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100 active:bg-gray-200 transition-colors">
+            <ChevronLeft className="w-5 h-5 text-gray-600" />
+          </button>
+          <div className="text-center">
+            <p className="text-sm font-semibold text-gray-800">Preview & Publish</p>
+            <p className="text-[11px] text-gray-400">Step 3 of 3</p>
+          </div>
+          <div className="w-9 h-9" />
+        </div>
+        {/* Full progress bar */}
+        <div className="flex gap-1.5 px-4 pb-3">
+          <div className="flex-1 h-1 rounded-full bg-[#2abaad]" />
+          <div className="flex-1 h-1 rounded-full bg-[#2abaad]" />
+          <div className="flex-1 h-1 rounded-full bg-[#2abaad]" />
+        </div>
+        {/* Tab switcher */}
+        <div className="flex px-4 pb-3 gap-2">
+          <button type="button" onClick={() => setActiveTab("summary")}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition-all ${activeTab === "summary" ? "bg-[#2abaad] text-white shadow-sm" : "bg-gray-100 text-gray-500"}`}>
+            <FileText className="w-3.5 h-3.5" /> Summary
+          </button>
+          <button type="button" onClick={() => setActiveTab("preview")}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition-all ${activeTab === "preview" ? "bg-[#2abaad] text-white shadow-sm" : "bg-gray-100 text-gray-500"}`}>
+            <Eye className="w-3.5 h-3.5" /> Preview
+            {canvasFields.length > 0 && (
+              <span className={`ml-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold ${activeTab === "preview" ? "bg-white/30 text-white" : "bg-gray-200 text-gray-500"}`}>
+                {canvasFields.length}
+              </span>
+            )}
+          </button>
+        </div>
+      </header>
+
+      {/* ── SUMMARY TAB ── */}
+      {activeTab === "summary" && (
+        <div className="flex-1 overflow-y-auto px-4 py-4 pb-36 space-y-3">
+
+          {/* Validation banner */}
+          {validationIssues.length > 0 && (
+            <div className={`rounded-2xl border-2 p-4 ${hasErrors ? "bg-red-50 border-red-200" : "bg-amber-50 border-amber-200"}`}>
+              <div className="flex items-center gap-2 mb-2.5">
+                {hasErrors ? <XCircle className="w-4 h-4 text-red-500 shrink-0" /> : <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />}
+                <p className={`text-xs font-semibold ${hasErrors ? "text-red-700" : "text-amber-700"}`}>
+                  {hasErrors ? "Fix issues before publishing" : "Review before publishing"}
+                </p>
+              </div>
+              <ul className="flex flex-col gap-2">
+                {validationIssues.map((issue, i) => (
+                  <li key={i} className={`text-xs flex items-start gap-1.5 ${issue.type === "error" ? "text-red-600" : "text-amber-600"}`}>
+                    {issue.type === "error" ? <XCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> : <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />}
+                    {issue.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Ready banner */}
+          {!hasErrors && canvasFields.length > 0 && (
+            <div className="flex items-center gap-3 px-4 py-3.5 bg-green-50 border border-green-200 rounded-2xl">
+              <CheckCircle className="w-5 h-5 text-green-500 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-green-700">Ready to publish</p>
+                <p className="text-xs text-green-500">All required fields are complete</p>
+              </div>
+            </div>
+          )}
+
+          {/* Title card */}
+          {meta.title && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-4">
+              <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-1">Checklist</p>
+              <p className="text-base font-bold text-gray-800">{meta.title}</p>
+              {meta.category && (
+                <span className="inline-flex items-center gap-1 mt-1.5 px-2.5 py-0.5 bg-teal-50 border border-teal-200 rounded-full text-xs text-teal-700">
+                  <Tag className="w-2.5 h-2.5" /> {meta.category}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Priority + Frequency */}
+          {(meta.priority || meta.frequency) && (
+            <div className="grid grid-cols-2 gap-3">
+              {meta.priority && (() => {
+                const pc = priorityConfig[meta.priority as keyof typeof priorityConfig];
+                return (
+                  <div className={`rounded-2xl border-2 px-4 py-3.5 ${pc?.border || "border-gray-200"} ${pc?.bg || "bg-gray-50"}`}>
+                    <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-1">Priority</p>
+                    <div className={`flex items-center gap-2 ${pc?.color || "text-gray-600"}`}>
+                      {pc?.icon}
+                      <span className="text-sm font-semibold">{pc?.label || meta.priority}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+              {meta.frequency && (
+                <div className="rounded-2xl border border-gray-100 bg-white shadow-sm px-4 py-3.5">
+                  <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-1">Frequency</p>
+                  <div className="flex items-center gap-2 text-gray-700">
+                    <Repeat className="w-4 h-4 text-[#2abaad]" />
+                    <span className="text-sm font-semibold">
+                      {meta.frequency === "ONE_OFF" || meta.frequency === "ONE_TIME" ? "One-time"
+                        : meta.frequency === "PERMANENT" ? "Permanent"
+                        : meta.frequency === "RECURRING" ? "Recurring"
+                        : meta.frequency}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Dates */}
+          {(meta.validFrom || meta.validTo) && (
+            <div className="grid grid-cols-2 gap-3">
+              {meta.validFrom && (
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-3.5">
+                  <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-1">Valid From</p>
+                  <div className="flex items-center gap-1.5 text-gray-700">
+                    <Calendar className="w-3.5 h-3.5 text-[#2abaad] shrink-0" />
+                    <span className="text-sm font-semibold">{meta.validFrom}</span>
+                  </div>
+                </div>
+              )}
+              {meta.validTo && (
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-3.5">
+                  <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-1">Valid To</p>
+                  <div className="flex items-center gap-1.5 text-gray-700">
+                    <Calendar className="w-3.5 h-3.5 text-[#2abaad] shrink-0" />
+                    <span className="text-sm font-semibold">{meta.validTo}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Assigned To */}
+          {meta.assignedTo && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-3.5 flex items-center gap-3">
+              <span className="w-9 h-9 rounded-xl bg-teal-50 flex items-center justify-center shrink-0">
+                <Users className="w-4 h-4 text-[#2abaad]" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-[10px] text-gray-400 uppercase tracking-widest">Assigned To</p>
+                <p className="text-sm font-semibold text-gray-800 truncate">{meta.assignedTo}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Location */}
+          {meta.location && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-3.5 flex items-center gap-3">
+              <span className="w-9 h-9 rounded-xl bg-teal-50 flex items-center justify-center shrink-0">
+                <MapPin className="w-4 h-4 text-[#2abaad]" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-[10px] text-gray-400 uppercase tracking-widest">Location</p>
+                <p className="text-sm font-semibold text-gray-800 truncate">{meta.location}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Validation setting */}
+          {meta.validateChecklist && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-3.5 flex items-center gap-3">
+              <span className="w-9 h-9 rounded-xl bg-green-50 flex items-center justify-center shrink-0">
+                <Shield className="w-4 h-4 text-green-500" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-[10px] text-gray-400 uppercase tracking-widest">Validation</p>
+                <p className="text-sm font-semibold text-gray-800">Required{meta.managerName ? ` · ${meta.managerName}` : ""}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Field stats */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-4">
+            <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-3">Fields</p>
+            <div className="flex items-center gap-4">
+              <div className="flex-1 text-center">
+                <p className="text-2xl font-bold text-gray-800">{canvasFields.length}</p>
+                <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">Total</p>
+              </div>
+              <div className="w-px h-10 bg-gray-100" />
+              <div className="flex-1 text-center">
+                <p className="text-2xl font-bold text-[#2abaad]">{requiredFieldsCount}</p>
+                <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">Required</p>
+              </div>
+              <div className="w-px h-10 bg-gray-100" />
+              <div className="flex-1 text-center">
+                <p className="text-2xl font-bold text-gray-400">{canvasFields.length - requiredFieldsCount}</p>
+                <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">Optional</p>
+              </div>
+            </div>
+            {canvasFields.length > 0 && (
+              <button type="button" onClick={() => setActiveTab("preview")}
+                className="w-full mt-3 py-2 rounded-xl bg-gray-50 border border-gray-200 text-xs text-[#2abaad] font-semibold flex items-center justify-center gap-1.5 active:bg-gray-100">
+                <Eye className="w-3.5 h-3.5" /> View field preview
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── PREVIEW TAB ── */}
+      {activeTab === "preview" && (
+        <div className="flex-1 overflow-y-auto px-4 py-4 pb-36">
+          {canvasFields.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center px-8">
+              <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
+                <Eye className="w-6 h-6 text-gray-300" />
+              </div>
+              <p className="text-sm text-gray-400 mb-3">No fields to preview</p>
+              <button type="button" onClick={onBack} className="px-4 py-2 rounded-xl border border-[#2abaad] text-[#2abaad] text-xs font-medium">← Go back and add fields</button>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-8 h-8 rounded-xl bg-teal-50 flex items-center justify-center shrink-0">
+                  <Eye className="w-4 h-4 text-[#2abaad]" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-700">Field Preview</p>
+                  <p className="text-[10px] text-gray-400">How it will appear to users</p>
+                </div>
+              </div>
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="px-5 pt-5 pb-4 border-b border-gray-50 bg-gradient-to-r from-teal-50/60 to-transparent">
+                  <p className="text-base font-bold text-gray-800">{meta.title || "Untitled Checklist"}</p>
+                  {meta.category && <p className="text-xs text-gray-400 mt-0.5">{meta.category}</p>}
+                </div>
+                <div className="px-5 py-5 flex flex-col gap-5">
+                  {canvasFields.map((field) => (
+                    <div key={field.uid}>
+                      {field.typeId === "section" ? (
+                        <CollapsibleSection field={field}>
+                          {(field.children || []).length === 0
+                            ? <p className="text-xs text-gray-400 py-2 text-center">No fields in this section</p>
+                            : (field.children || []).map((child) => renderPreviewField(child))}
+                        </CollapsibleSection>
+                      ) : renderPreviewField(field)}
+                    </div>
+                  ))}
+                </div>
+                <div className="px-5 py-4 border-t border-gray-50 bg-gray-50/50">
+                  <p className="text-[10px] text-gray-400 text-center">Fields marked with <span className="text-[#2abaad]">*</span> are required</p>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Fixed bottom bar */}
+      <div className="fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-gray-100 px-4 py-3 shadow-lg">
+        {hasErrors && (
+          <p className="text-[10px] text-red-500 text-center mb-2 flex items-center justify-center gap-1">
+            <AlertCircle className="w-3 h-3" /> Fix the issues above before publishing
+          </p>
+        )}
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={onBack} className="w-10 h-10 flex items-center justify-center rounded-2xl bg-gray-100 active:bg-gray-200 transition-colors">
+            <ChevronLeft className="w-5 h-5 text-gray-600" />
+          </button>
+          <button type="button" className="flex-1 py-3 rounded-2xl border border-gray-200 text-sm font-medium text-gray-600 bg-white active:bg-gray-50 transition-colors">
+            Save Draft
+          </button>
+          <button type="button" onClick={handlePublish} disabled={hasErrors || canvasFields.length === 0 || published}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-white text-sm font-semibold transition-all shadow-md disabled:opacity-40 disabled:shadow-none ${published ? "bg-green-500 shadow-green-200" : "bg-[#2abaad] active:bg-[#24a699] shadow-teal-200"}`}>
+            {published ? <><CheckCircle2 className="w-4 h-4" /> Published!</> : <><Upload className="w-4 h-4" /> Publish</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ─── DESKTOP LAYOUT ──────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-teal-50/30 flex flex-col">
+    <>
+      {mobileLayout}
+      <div className="hidden sm:flex min-h-screen bg-gradient-to-br from-slate-50 via-white to-teal-50/30 flex-col">
       {/* Header */}
       <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between shadow-sm shrink-0">
         <div className="flex items-center gap-2 text-sm">
@@ -621,6 +908,7 @@ export function ChecklistStep3({ onBack, onPublish, canvasFields, metadata = {} 
           </p>
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

@@ -27,6 +27,25 @@ function parseKvValue(val: any): any {
   return val;
 }
 
+/**
+ * Retry wrapper for kv.getByPrefix — the Supabase HTTP connection can
+ * occasionally drop mid-response ("error reading a body from connection").
+ * Retrying once after a short delay resolves the vast majority of cases.
+ */
+async function getByPrefixWithRetry(prefix: string, retries = 2, delayMs = 150): Promise<any[]> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      return await kv.getByPrefix(prefix);
+    } catch (err) {
+      lastErr = err;
+      console.warn(`getByPrefix("${prefix}") attempt ${attempt + 1} failed: ${err}. Retrying in ${delayMs}ms…`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastErr;
+}
+
 async function createAssignment(
   checklistId: string,
   assignedTo: string,
@@ -101,7 +120,7 @@ app.post("/checklists", async (c) => {
     const incomingFrequency = (body.frequency || "").trim().toUpperCase();
 
     if (incomingTitle && incomingFrequency && !body.bypassDuplicateCheck) {
-      const allRaw    = await kv.getByPrefix("checklist_meta:");
+      const allRaw    = await getByPrefixWithRetry("checklist_meta:");
       const allLists  = allRaw.map(parseKvValue).filter((ch: any) => ch && ch.id && ch.id !== checklistId);
       const duplicate = allLists.find((ch: any) =>
         (ch.title || "").trim().toLowerCase() === incomingTitle &&
@@ -148,7 +167,7 @@ app.get("/checklists", async (c) => {
 
     // Use lightweight meta prefix only — never includes fields/base64 blobs.
     // A single query avoids the statement timeout caused by scanning full records.
-    const metaRaw = await kv.getByPrefix("checklist_meta:");
+    const metaRaw = await getByPrefixWithRetry("checklist_meta:");
 
     const checklists = metaRaw
       .map(parseKvValue)
@@ -197,7 +216,7 @@ app.put("/checklists/:id", async (c) => {
     const incomingFrequency = (body.frequency || existing.frequency || "").trim().toUpperCase();
 
     if (incomingTitle && incomingFrequency && !body.bypassDuplicateCheck) {
-      const allRaw    = await kv.getByPrefix("checklist_meta:");
+      const allRaw    = await getByPrefixWithRetry("checklist_meta:");
       const others    = allRaw.map(parseKvValue).filter((ch: any) => ch && ch.id && ch.id !== checklistId);
       const duplicate = others.find((ch: any) =>
         (ch.title || "").trim().toLowerCase() === incomingTitle &&
@@ -492,7 +511,7 @@ app.get("/submissions", async (c) => {
 
     // Use the lightweight meta prefix only — never includes answers/base64 blobs.
     // A single query avoids the statement timeout caused by scanning full records.
-    const metaRaw = await kv.getByPrefix("submission_meta:");
+    const metaRaw = await getByPrefixWithRetry("submission_meta:");
 
     const submissions = metaRaw
       .map(parseKvValue)
@@ -636,7 +655,7 @@ app.get("/tags", async (c) => {
     const status      = c.req.query("status");
     const tagType     = c.req.query("tagType");
 
-    const metaRaw = await kv.getByPrefix("tag_meta:");
+    const metaRaw = await getByPrefixWithRetry("tag_meta:");
     const tags = metaRaw
       .map(parseKvValue)
       .filter(Boolean)
@@ -745,7 +764,7 @@ app.get("/immediate-actions", async (c) => {
     const checklistId = c.req.query("checklistId");
     const status      = c.req.query("status");
 
-    const metaRaw = await kv.getByPrefix("immediate_action_meta:");
+    const metaRaw = await getByPrefixWithRetry("immediate_action_meta:");
     const actions = metaRaw
       .map(parseKvValue)
       .filter(Boolean)
@@ -793,6 +812,120 @@ app.put("/immediate-actions/:id/status", async (c) => {
   } catch (error) {
     console.error("Error updating immediate action status:", error);
     return c.json({ error: "Failed to update immediate action status", details: String(error) }, 500);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLOSURE EVENTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** POST /closure-events — create a closure event attached to a submission */
+app.post("/closure-events", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { checklistId, submissionId, title, description, closureDate } = body;
+    if (!checklistId || !title) {
+      return c.json({ error: "Missing required fields: checklistId, title" }, 400);
+    }
+    const id = `closure_event_${Date.now()}_${crypto.randomUUID()}`;
+    const record = {
+      id,
+      checklistId,
+      submissionId: submissionId || null,
+      title,
+      description: description || "",
+      closureDate: closureDate || null,
+      status: "open",
+      createdBy: GUEST_USER.id,
+      createdAt: Date.now(),
+    };
+    await kv.set(`closure_event:${id}`, record);
+    await kv.set(`closure_event_meta:${id}`, { id, checklistId, title, status: record.status, createdAt: record.createdAt });
+    console.log(`Closure event created: ${id} on checklist ${checklistId}`);
+    return c.json({ success: true, closureEvent: record });
+  } catch (error) {
+    console.error("Error creating closure event:", error);
+    return c.json({ error: "Failed to create closure event", details: String(error) }, 500);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ACTION ITEMS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** POST /action-items — create a follow-up action item */
+app.post("/action-items", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { checklistId, submissionId, title, assignee, dueDate, priority } = body;
+    if (!checklistId || !title) {
+      return c.json({ error: "Missing required fields: checklistId, title" }, 400);
+    }
+    const id = `action_item_${Date.now()}_${crypto.randomUUID()}`;
+    const record = {
+      id,
+      checklistId,
+      submissionId: submissionId || null,
+      title,
+      assignee: assignee || "",
+      dueDate: dueDate || null,
+      priority: priority || "normal",
+      status: "open",
+      createdBy: GUEST_USER.id,
+      createdAt: Date.now(),
+    };
+    await kv.set(`action_item:${id}`, record);
+    await kv.set(`action_item_meta:${id}`, { id, checklistId, title, priority: record.priority, status: record.status, createdAt: record.createdAt });
+    console.log(`Action item created: ${id} on checklist ${checklistId}`);
+    return c.json({ success: true, actionItem: record });
+  } catch (error) {
+    console.error("Error creating action item:", error);
+    return c.json({ error: "Failed to create action item", details: String(error) }, 500);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RISK ASSESSMENTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function computeRiskLevel(likelihood: string, impact: string): string {
+  const l = ({ low: 1, medium: 2, high: 3 } as Record<string, number>)[likelihood] ?? 2;
+  const i = ({ low: 1, medium: 2, high: 3 } as Record<string, number>)[impact] ?? 2;
+  const score = l * i;
+  if (score >= 6) return "high";
+  if (score >= 3) return "medium";
+  return "low";
+}
+
+/** POST /risk-assessments — create a risk assessment record */
+app.post("/risk-assessments", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { checklistId, submissionId, description, likelihood, impact } = body;
+    if (!checklistId || !description) {
+      return c.json({ error: "Missing required fields: checklistId, description" }, 400);
+    }
+    const id = `risk_assessment_${Date.now()}_${crypto.randomUUID()}`;
+    const riskLevel = computeRiskLevel(likelihood ?? "medium", impact ?? "medium");
+    const record = {
+      id,
+      checklistId,
+      submissionId: submissionId || null,
+      description,
+      likelihood: likelihood || "medium",
+      impact: impact || "medium",
+      riskLevel,
+      status: "open",
+      createdBy: GUEST_USER.id,
+      createdAt: Date.now(),
+    };
+    await kv.set(`risk_assessment:${id}`, record);
+    await kv.set(`risk_assessment_meta:${id}`, { id, checklistId, description, riskLevel, status: record.status, createdAt: record.createdAt });
+    console.log(`Risk assessment created: ${id} (${riskLevel}) on checklist ${checklistId}`);
+    return c.json({ success: true, riskAssessment: record });
+  } catch (error) {
+    console.error("Error creating risk assessment:", error);
+    return c.json({ error: "Failed to create risk assessment", details: String(error) }, 500);
   }
 });
 

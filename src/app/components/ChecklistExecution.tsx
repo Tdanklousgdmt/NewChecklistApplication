@@ -6,12 +6,16 @@ import {
   ScanLine, Calculator, ChevronDown, ChevronUp, X, Check,
   Video, RefreshCw, Navigation, Info, Heading1, Trash2, ZoomIn,
   Save, Clock, RotateCcw, BookOpen, Download, Play, Image, Film,
-  Maximize2, Tag, Zap,
+  Maximize2, Tag, Zap, XCircle,
 } from "lucide-react";
 import { checklistService } from "../services/checklistService";
 import { toast } from "sonner";
 import { TagDeclarationModal } from "./TagDeclarationModal";
 import { ImmediateActionModal } from "./ImmediateActionModal";
+import { CompletionActionsModal } from "./CompletionActionsModal";
+import { TriggerFiredModal } from "./TriggerFiredModal";
+import { evaluateTriggers } from "../utils/triggerEngine";
+import { Trigger, TriggerImpact } from "../types/triggers";
 
 interface ChecklistExecutionProps {
   checklistId: string;
@@ -691,6 +695,24 @@ export function ChecklistExecution({ checklistId, assignmentId, onBack, onSubmit
   const [showImmediateActionModal, setShowImmediateActionModal] = useState(false);
   const [immediateActionCount, setImmediateActionCount]         = useState(0);
 
+  // ── Mobile FAB state ─────────────────────────────────────────────────────────
+  const [fabOpen, setFabOpen] = useState(false);
+
+  // ── Completion modal state ────────────────────────────────────────────────────
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [pendingSubmissionId, setPendingSubmissionId] = useState<string | null>(null);
+
+  // ── Trigger engine state ──────────────────────────────────────────────────────
+  const [notOkFields,      setNotOkFields]      = useState<Set<string>>(new Set());
+  const [blockedByTrigger, setBlockedByTrigger] = useState<Map<string, string>>(new Map());
+  const [hiddenByTrigger,  setHiddenByTrigger]  = useState<Set<string>>(new Set());
+  const [activeTriggerFired, setActiveTriggerFired] = useState<{
+    fieldLabel: string;
+    impacts: TriggerImpact[];
+  } | null>(null);
+  // Track previously-firing trigger IDs per field (to avoid re-firing one-time impacts)
+  const prevFiredRef = useRef<Record<string, Set<string>>>({});
+
   useEffect(() => { loadChecklist(); }, [checklistId]);
 
   const loadChecklist = async () => {
@@ -791,6 +813,85 @@ export function ChecklistExecution({ checklistId, assignmentId, onBack, onSubmit
   const answer = (uid: string, value: any, score = 0) => {
     setAnswers((prev) => ({ ...prev, [uid]: { value, score, answeredAt: Date.now() } }));
     setErrors((prev) => { const n = { ...prev }; delete n[uid]; return n; });
+
+    // ── Trigger evaluation ────────────────────────────────────────────────────
+    const flatForTriggers = (fields: any[]): any[] =>
+      fields.flatMap((f: any) => f.typeId === "section" ? (f.children || []) : [f]);
+
+    const field = flatForTriggers(allFields).find((f: any) => f.uid === uid);
+    if (!field?.triggers?.length) return;
+
+    const newAnswers = { ...answers, [uid]: { value, score }, "__notOkFields__": notOkFields };
+    const nowFiring: Trigger[] = evaluateTriggers(field, value, newAnswers);
+
+    // ── Persistent impacts: update state based on what's NOW firing ───────────
+    const nowFiringTypes = new Set(nowFiring.flatMap((t: Trigger) => t.impacts.map((i) => i.type)));
+
+    // mark_not_ok
+    if (nowFiringTypes.has("mark_not_ok")) {
+      setNotOkFields((prev) => new Set([...prev, uid]));
+    } else {
+      setNotOkFields((prev) => { const n = new Set(prev); n.delete(uid); return n; });
+    }
+
+    // block_submit
+    const blockImpact = nowFiring.flatMap((t: Trigger) => t.impacts).find((i) => i.type === "block_submit");
+    if (blockImpact) {
+      setBlockedByTrigger((prev) => new Map([...prev, [uid, blockImpact.payload?.message || "A trigger is blocking submission for this field"]]));
+    } else {
+      setBlockedByTrigger((prev) => { const n = new Map(prev); n.delete(uid); return n; });
+    }
+
+    // hide_field / show_field (apply every re-evaluation)
+    nowFiring.flatMap((t: Trigger) => t.impacts).forEach((impact) => {
+      if (impact.type === "hide_field" && impact.payload?.targetFieldUid) {
+        setHiddenByTrigger((prev) => new Set([...prev, impact.payload!.targetFieldUid!]));
+      }
+      if (impact.type === "show_field" && impact.payload?.targetFieldUid) {
+        setHiddenByTrigger((prev) => { const n = new Set(prev); n.delete(impact.payload!.targetFieldUid!); return n; });
+      }
+      if (impact.type === "autofill_field" && impact.payload?.targetFieldUid) {
+        setAnswers((prev) => ({
+          ...prev,
+          [impact.payload!.targetFieldUid!]: {
+            value: impact.payload?.targetValue ?? "",
+            score: 0,
+            answeredAt: Date.now(),
+            autofilled: true,
+          },
+        }));
+      }
+    });
+
+    // ── One-time impacts: only fire for newly-triggered items ─────────────────
+    const prevFired: Set<string> = prevFiredRef.current[uid] || new Set();
+    const newlyFiring = nowFiring.filter((t: Trigger) => !prevFired.has(t.id));
+    prevFiredRef.current[uid] = new Set(nowFiring.map((t: Trigger) => t.id));
+
+    if (newlyFiring.length === 0) return;
+
+    const oneTimeImpacts = newlyFiring.flatMap((t: Trigger) => t.impacts);
+
+    // Notification side-effects
+    oneTimeImpacts.forEach((impact) => {
+      if (impact.type === "notify_inapp") {
+        toast.info(`📢 Notification sent to ${impact.payload?.userName || "supervisor"}${impact.payload?.message ? ` · ${impact.payload.message}` : ""}`);
+      }
+      if (impact.type === "notify_email") {
+        toast.info(`📧 Email sent to ${impact.payload?.emailAddress || "engineer"}${impact.payload?.message ? ` · ${impact.payload.message}` : ""}`);
+      }
+      if (impact.type === "escalate") {
+        toast.warning(`🚨 Escalated to manager${impact.payload?.message ? ` · ${impact.payload.message}` : ""}`);
+      }
+    });
+
+    // Show modal for interactive / important impacts
+    const modalImpacts = oneTimeImpacts.filter((i) =>
+      ["open_risk", "open_tag", "open_action", "add_note", "mark_not_ok", "block_submit", "require_photo"].includes(i.type)
+    );
+    if (modalImpacts.length > 0) {
+      setActiveTriggerFired({ fieldLabel: field.label || field.typeId, impacts: modalImpacts });
+    }
   };
 
   const allFields: any[] = checklist?.canvasFields || [];
@@ -823,7 +924,14 @@ export function ChecklistExecution({ checklistId, assignmentId, onBack, onSubmit
 
   const validate = () => {
     const errs: Record<string, string> = {};
+
+    // Check trigger-blocked fields first
+    blockedByTrigger.forEach((msg, uid) => {
+      errs[uid] = `🚫 Blocked by trigger: ${msg}`;
+    });
+
     for (const f of answerableFields) {
+      if (errs[f.uid]) continue; // already has a trigger error
       if (!f.required) continue;
       const a = answers[f.uid];
       const val = a?.value;
@@ -836,13 +944,20 @@ export function ChecklistExecution({ checklistId, assignmentId, onBack, onSubmit
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = async () => {
+  /** Step 1: validate and show the completion-actions modal */
+  const handleSubmit = () => {
     if (!validate()) {
       toast.error("Please complete all required fields");
       const firstErr = document.querySelector("[data-error='true']");
       firstErr?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
+    // Reveal the "before you submit" bottom sheet
+    setShowCompletionModal(true);
+  };
+
+  /** Step 2: actually submit (called from inside CompletionActionsModal) */
+  const doSubmit = async () => {
     setSubmitting(true);
     try {
       const answersArray = Object.entries(answers).map(([uid, a]: [string, any]) => ({
@@ -852,15 +967,19 @@ export function ChecklistExecution({ checklistId, assignmentId, onBack, onSubmit
         answeredAt: a.answeredAt || Date.now(),
       }));
 
+      let result: any;
       if (draftId) {
-        // Promote the existing draft to a real submission
-        await checklistService.finaliseDraftSubmission(draftId, answersArray);
+        result = await checklistService.finaliseDraftSubmission(draftId, answersArray);
       } else {
-        // Create a fresh submission
-        await checklistService.submitExecution(checklistId, assignmentId || null, answersArray);
+        result = await checklistService.submitExecution(checklistId, assignmentId || null, answersArray);
       }
 
-      toast.success("Checklist submitted successfully!");
+      // Persist the new submissionId so the modal can attach closure/action/risk items to it
+      const sid = result?.id || result?.submission?.id || draftId || null;
+      setPendingSubmissionId(sid);
+
+      setShowCompletionModal(false);
+      toast.success("Checklist submitted successfully! 🎉");
       onSubmitted?.();
       onBack();
     } catch (err: any) {
@@ -883,13 +1002,21 @@ export function ChecklistExecution({ checklistId, assignmentId, onBack, onSubmit
         : "border-gray-200 focus:border-teal-400 focus:ring-teal-100 bg-white"
     }`;
 
+    // ── Skip hidden fields ────────────────────────────────────────────────────
+    if (hiddenByTrigger.has(field.uid)) return null;
+
+    const isNotOk = notOkFields.has(field.uid);
+    const isBlocked = blockedByTrigger.has(field.uid);
+
     // ── wrap() is a plain function, NOT a JSX component ──────────────────────
     // Calling it as wrap(content) inlines its output directly into the parent's
     // render tree. React reconciles the returned <div> by its primitive type
     // (always "div") — no component-type mismatch → no unmount/remount on
     // every parent re-render, so file-input refs survive across state updates.
     const wrap = (content: React.ReactNode) => (
-      <div data-error={hasError} className={`space-y-3 p-5 bg-white rounded-2xl border-2 transition-all ${hasError ? "border-red-200" : "border-gray-100"}`}>
+      <div data-error={hasError} className={`space-y-3 p-5 bg-white rounded-2xl border-2 transition-all ${
+        isNotOk || isBlocked ? "border-red-300 shadow-md shadow-red-50" : hasError ? "border-red-200" : "border-gray-100"
+      }`}>
         {field.typeId !== "separator" && field.typeId !== "section" && (
           <div className="flex items-start gap-2">
             <div className="flex-1 min-w-0">
@@ -901,11 +1028,28 @@ export function ChecklistExecution({ checklistId, assignmentId, onBack, onSubmit
                 <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{field.helpText}</p>
               )}
             </div>
-            {score > 0 && (
-              <span className="shrink-0 px-2 py-0.5 bg-teal-50 text-teal-700 text-[11px] font-semibold rounded-full">
-                +{score} pts
-              </span>
-            )}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {isNotOk && (
+                <span className="flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 text-[10px] font-bold rounded-full border border-red-200">
+                  <AlertCircle className="w-3 h-3" /> NOT OK
+                </span>
+              )}
+              {isBlocked && (
+                <span className="flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-600 text-[10px] font-bold rounded-full border border-red-200">
+                  🚫 Blocked
+                </span>
+              )}
+              {(field.triggers?.length ?? 0) > 0 && !isNotOk && !isBlocked && (
+                <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-orange-50 text-orange-500 text-[9px] font-bold rounded-full border border-orange-100">
+                  <Zap className="w-2.5 h-2.5" />
+                </span>
+              )}
+              {score > 0 && (
+                <span className="px-2 py-0.5 bg-teal-50 text-teal-700 text-[11px] font-semibold rounded-full">
+                  +{score} pts
+                </span>
+              )}
+            </div>
           </div>
         )}
         {content}
@@ -1493,6 +1637,409 @@ export function ChecklistExecution({ checklistId, assignmentId, onBack, onSubmit
     }
   };
 
+  // ── Mobile field renderer ──────────────────────────────────────────────────
+  const renderFieldMobile = (field: any, fieldIndex?: number): React.ReactNode => {
+    const val      = answers[field.uid]?.value;
+    const hasError = !!errors[field.uid];
+    const isAnswered =
+      val !== null && val !== undefined && val !== "" && val !== false &&
+      !(field.typeId === "rating" && val === 0);
+
+    // Skip hidden fields on mobile too
+    if (hiddenByTrigger.has(field.uid)) return null;
+
+    const isMobileNotOk = notOkFields.has(field.uid);
+    const isMobileBlocked = blockedByTrigger.has(field.uid);
+
+    const mInputCls = `w-full px-4 py-4 border-2 rounded-2xl text-base text-gray-700 placeholder:text-gray-300 focus:outline-none transition-all ${
+      hasError
+        ? "border-red-300 bg-red-50/30 focus:border-red-400"
+        : "border-gray-200 focus:border-teal-400 bg-white"
+    }`;
+
+    const mWrap = (content: React.ReactNode) => (
+      <div
+        data-error={hasError}
+        className={`relative bg-white rounded-2xl shadow-sm border-2 transition-all overflow-hidden ${
+          isMobileNotOk || isMobileBlocked ? "border-red-300 shadow-red-50" : hasError ? "border-red-200" : isAnswered ? "border-teal-100" : "border-gray-100"
+        }`}
+      >
+        {/* Answered indicator */}
+        {isAnswered && !hasError && (
+          <div className="absolute top-3.5 right-3.5 w-6 h-6 bg-teal-500 rounded-full flex items-center justify-center z-10 shadow-sm">
+            <Check className="w-3.5 h-3.5 text-white" />
+          </div>
+        )}
+        {/* Field index badge */}
+        {fieldIndex !== undefined && (
+          <div className={`absolute top-3.5 left-3.5 w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold z-10 ${
+            isAnswered ? "bg-teal-50 text-teal-600" : "bg-gray-100 text-gray-400"
+          }`}>
+            {fieldIndex}
+          </div>
+        )}
+        <div className={`p-4 ${fieldIndex !== undefined ? "pt-11" : "pt-4"}`}>
+          {/* Label + required badge */}
+          <div className="mb-3">
+            <div className="flex items-start justify-between gap-2">
+              <label className="text-sm font-semibold text-gray-800 leading-snug flex-1 pr-7">
+                {field.label}
+              </label>
+              <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
+                {isMobileNotOk && (
+                  <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-red-100 text-red-700 text-[9px] font-bold rounded-md">
+                    ⛔ NOT OK
+                  </span>
+                )}
+                {isMobileBlocked && (
+                  <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-red-50 text-red-600 text-[9px] font-bold rounded-md">
+                    🚫 Blocked
+                  </span>
+                )}
+                {(field.triggers?.length ?? 0) > 0 && !isMobileNotOk && !isMobileBlocked && (
+                  <span className="flex items-center gap-0.5 px-1 py-0.5 bg-orange-50 text-orange-500 text-[9px] font-bold rounded-md">
+                    <Zap className="w-2.5 h-2.5" />
+                  </span>
+                )}
+                {field.required && (
+                  <span className="mt-0.5 px-1.5 py-0.5 bg-red-50 text-red-400 text-[9px] font-bold rounded-md uppercase tracking-wide">
+                    Required
+                  </span>
+                )}
+              </div>
+            </div>
+            {field.helpText && (
+              <p className="text-xs text-gray-400 mt-1 leading-relaxed">{field.helpText}</p>
+            )}
+          </div>
+          {content}
+          {/* Error message */}
+          {hasError && (
+            <div className="flex items-center gap-2 mt-3 px-3 py-2.5 bg-red-50 rounded-xl">
+              <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+              <p className="text-xs text-red-600 font-medium">{errors[field.uid]}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+
+    // ── Separator ──────────────────────────────────────────────────────────────
+    if (field.typeId === "separator") {
+      return <div className="h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent mx-2" />;
+    }
+
+    // ── Instruction ────────────────────────────────────────────────────────────
+    if (field.typeId === "instruction") {
+      return (
+        <div className="flex gap-3 px-4 py-4 bg-blue-50 border border-blue-100 rounded-2xl">
+          <Info className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-blue-800">{field.label}</p>
+            {field.content && <p className="text-sm text-blue-700 mt-1 leading-relaxed">{field.content}</p>}
+          </div>
+        </div>
+      );
+    }
+
+    // ── Section ────────────────────────────────────────────────────────────────
+    if (field.typeId === "section") {
+      const isCollapsed = collapsed.has(field.uid);
+      const isHidden = field.revealCondition && !revealedSections.has(field.uid);
+      if (isHidden) return null;
+      const sectionChildren: any[] = field.children || [];
+      const answeredInSection = sectionChildren.filter((c: any) => {
+        const a = answers[c.uid];
+        return a && a.value !== null && a.value !== undefined && a.value !== "" && a.value !== false;
+      }).length;
+      return (
+        <div className="rounded-2xl overflow-hidden border-2 border-amber-200 bg-amber-50/40">
+          <button
+            type="button"
+            onClick={() => setCollapsed((prev) => {
+              const next = new Set(prev);
+              next.has(field.uid) ? next.delete(field.uid) : next.add(field.uid);
+              return next;
+            })}
+            className="w-full flex items-center gap-3 px-4 py-4 bg-gradient-to-r from-amber-100/60 to-transparent active:from-amber-100"
+          >
+            <div className="w-10 h-10 bg-amber-200 rounded-xl flex items-center justify-center shrink-0">
+              <Heading1 className="w-5 h-5 text-amber-700" />
+            </div>
+            <div className="flex-1 text-left min-w-0">
+              <p className="text-sm font-bold text-gray-800 truncate">{field.label || field.content}</p>
+              <p className="text-xs text-amber-600 mt-0.5">{answeredInSection} / {sectionChildren.length} answered</p>
+            </div>
+            {isCollapsed
+              ? <ChevronDown className="w-5 h-5 text-amber-500 shrink-0" />
+              : <ChevronUp   className="w-5 h-5 text-amber-500 shrink-0" />}
+          </button>
+          {!isCollapsed && (
+            sectionChildren.length === 0 ? (
+              <p className="text-xs text-gray-400 py-6 text-center border-t border-amber-200">No fields in this section</p>
+            ) : (
+              <div className="px-3 pb-3 space-y-3 border-t border-amber-200 pt-3">
+                {sectionChildren.map((child: any) => (
+                  <div key={child.uid}>{renderFieldMobile(child)}</div>
+                ))}
+              </div>
+            )
+          )}
+        </div>
+      );
+    }
+
+    // ── Yes / No ───────────────────────────────────────────────────────────────
+    if (field.typeId === "yes_no") {
+      return mWrap(
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            { v: "yes", label: "Yes", emoji: "✓", active: "bg-green-500 text-white border-green-500 shadow-lg shadow-green-200", ring: "ring-4 ring-green-100" },
+            { v: "no",  label: "No",  emoji: "✗", active: "bg-red-500 text-white border-red-500 shadow-lg shadow-red-200",   ring: "ring-4 ring-red-100"   },
+          ].map(({ v, label, emoji, active, ring }) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => answer(field.uid, v, v === "yes" ? 10 : 0)}
+              className={`flex flex-col items-center justify-center gap-2 py-6 rounded-2xl border-2 font-bold text-lg transition-all active:scale-95 ${
+                val === v ? `${active} ${ring}` : "border-gray-200 bg-white text-gray-400"
+              }`}
+            >
+              <span className="text-3xl leading-none">{emoji}</span>
+              <span className="text-base">{label}</span>
+            </button>
+          ))}
+        </div>
+      );
+    }
+
+    // ── Checkbox ───────────────────────────────────────────────────────────────
+    if (field.typeId === "checkbox") {
+      return mWrap(
+        <button
+          type="button"
+          onClick={() => answer(field.uid, !val)}
+          className={`flex items-center gap-4 w-full px-5 py-4 rounded-2xl border-2 transition-all active:scale-[0.98] text-left ${
+            val ? "border-teal-400 bg-teal-50 text-teal-800" : "border-gray-200 bg-white text-gray-600"
+          }`}
+        >
+          <div className={`w-7 h-7 rounded-xl flex items-center justify-center border-2 shrink-0 transition-all ${val ? "bg-teal-500 border-teal-500" : "border-gray-300"}`}>
+            {val && <Check className="w-4 h-4 text-white" />}
+          </div>
+          <span className="text-base font-semibold">{val ? "Checked ✓" : "Tap to check"}</span>
+        </button>
+      );
+    }
+
+    // ── Rating ─────────────────────────────────────────────────────────────────
+    if (field.typeId === "rating") {
+      const maxR = field.maxRating || 5;
+      return mWrap(
+        (field.ratingStyle || "star") === "star" ? (
+          <div className="flex justify-around py-2">
+            {Array.from({ length: maxR }, (_, i) => i + 1).map((star) => (
+              <button key={star} type="button" onClick={() => answer(field.uid, star, star)} className="active:scale-90 transition-transform">
+                <Star className={`w-11 h-11 transition-colors ${star <= (val || 0) ? "text-amber-400 fill-amber-400" : "text-gray-200 fill-gray-100"}`} />
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2 justify-center py-2">
+            {Array.from({ length: maxR }, (_, i) => i + 1).map((n) => (
+              <button key={n} type="button" onClick={() => answer(field.uid, n, n)}
+                className={`w-12 h-12 rounded-2xl font-bold text-base transition-all active:scale-95 ${val === n ? "bg-teal-500 text-white shadow-md" : "bg-gray-100 text-gray-600"}`}>
+                {n}
+              </button>
+            ))}
+          </div>
+        )
+      );
+    }
+
+    // ── Custom Buttons ─────────────────────────────────────────────────────────
+    if (field.typeId === "custom_buttons") {
+      const buttons = field.customButtons || [];
+      return mWrap(<>
+        <div className="flex flex-col gap-2">
+          {buttons.map((btn: any) => {
+            const isSelected = val === btn.id;
+            return (
+              <button
+                key={btn.id}
+                type="button"
+                onClick={() => {
+                  const sc = typeof btn.score === "number" ? btn.score : 0;
+                  answer(field.uid, btn.id, sc);
+                  if (btn.score === "reveal" && btn.revealSections) {
+                    setRevealedSections((prev) => {
+                      const next = new Set(prev);
+                      btn.revealSections.forEach((sid: string) => next.add(sid));
+                      return next;
+                    });
+                  }
+                }}
+                style={isSelected ? { backgroundColor: btn.bgColor, color: btn.textColor, borderColor: btn.bgColor } : {}}
+                className={`w-full flex items-center justify-between px-5 py-4 rounded-2xl border-2 text-sm font-semibold transition-all active:scale-[0.98] ${
+                  isSelected ? "shadow-md" : "border-gray-200 bg-white text-gray-600"
+                }`}
+              >
+                <span>{btn.label}</span>
+                <div className="flex items-center gap-2">
+                  {typeof btn.score === "number" && btn.score > 0 && (
+                    <span className={`text-xs font-normal ${isSelected ? "opacity-80" : "text-gray-400"}`}>+{btn.score}</span>
+                  )}
+                  {isSelected && <div className="w-5 h-5 rounded-full bg-white/30 flex items-center justify-center"><Check className="w-3 h-3" /></div>}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        {val && (
+          <button type="button" onClick={() => answer(field.uid, null, 0)} className="w-full text-xs text-gray-400 py-2 text-center active:text-gray-600 mt-1">
+            Clear selection
+          </button>
+        )}
+      </>);
+    }
+
+    // ── Dropdown ───────────────────────────────────────────────────────────────
+    if (field.typeId === "dropdown") {
+      const opts = field.options || [];
+      const isMulti = field.multiSelect;
+      if (isMulti) {
+        const selected: string[] = Array.isArray(val) ? val : [];
+        return mWrap(<>
+          {selected.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-3">
+              {selected.map((s: string) => (
+                <span key={s} className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-100 text-teal-800 text-xs font-semibold rounded-full">
+                  {s}
+                  <button type="button" onClick={() => answer(field.uid, selected.filter((x) => x !== s))}>
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="space-y-2">
+            {opts.filter((o: string) => !selected.includes(o)).map((opt: string) => (
+              <button key={opt} type="button" onClick={() => answer(field.uid, [...selected, opt])}
+                className="w-full text-left px-4 py-4 rounded-2xl border-2 border-gray-200 text-sm text-gray-700 active:border-teal-300 active:bg-teal-50 transition-all">
+                {opt}
+              </button>
+            ))}
+          </div>
+        </>);
+      }
+      return mWrap(
+        <div className="space-y-2">
+          {opts.map((opt: string) => (
+            <button key={opt} type="button" onClick={() => answer(field.uid, opt)}
+              className={`w-full text-left px-4 py-4 rounded-2xl border-2 text-sm font-medium transition-all active:scale-[0.98] flex items-center gap-3 ${
+                val === opt ? "border-teal-400 bg-teal-50 text-teal-800" : "border-gray-200 bg-white text-gray-700"
+              }`}>
+              <span className={`w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center ${val === opt ? "border-teal-500 bg-teal-500" : "border-gray-300"}`}>
+                {val === opt && <span className="w-2 h-2 rounded-full bg-white" />}
+              </span>
+              {opt}
+            </button>
+          ))}
+          {field.allowOther && (
+            <input type="text"
+              value={val?.startsWith?.("__other__:") ? val.slice(9) : ""}
+              onChange={(e) => answer(field.uid, `__other__:${e.target.value}`)}
+              placeholder="Other…"
+              className={mInputCls + " mt-1"}
+            />
+          )}
+        </div>
+      );
+    }
+
+    // ── Short text / Long text / Number / Date / Time / DateTime ───────────────
+    if (field.typeId === "short_text") {
+      return mWrap(<input type="text" value={val || ""} onChange={(e) => answer(field.uid, e.target.value)} placeholder={field.placeholder || "Type your answer…"} className={mInputCls} />);
+    }
+    if (field.typeId === "long_text") {
+      return mWrap(<>
+        <textarea value={val || ""} onChange={(e) => answer(field.uid, e.target.value)} placeholder={field.placeholder || "Type your response…"} rows={field.rows || 4} maxLength={field.maxLength} className={mInputCls + " resize-none"} />
+        {field.maxLength && <p className="text-xs text-gray-400 text-right mt-1">{(val?.length || 0)} / {field.maxLength}</p>}
+      </>);
+    }
+    if (field.typeId === "number") {
+      return mWrap(<input type="number" value={val ?? ""} onChange={(e) => { const n = e.target.value === "" ? undefined : Number(e.target.value); answer(field.uid, n); }} placeholder={field.placeholder || "Enter a number…"} min={field.minValue} max={field.maxValue} step={field.step || 1} className={mInputCls} />);
+    }
+    if (field.typeId === "number_unit") {
+      return mWrap(<div className="flex gap-2">
+        <input type="number" value={val?.primary ?? ""} onChange={(e) => { const n = e.target.value === "" ? undefined : Number(e.target.value); answer(field.uid, { ...val, primary: n }); }} placeholder="0" className={mInputCls} />
+        {field.primaryUnit && <div className="px-4 py-4 bg-gray-100 border-2 border-gray-200 rounded-2xl text-sm font-bold text-gray-600 whitespace-nowrap flex items-center">{field.primaryUnit}</div>}
+      </div>);
+    }
+    if (field.typeId === "number_threshold") {
+      return mWrap(<>
+        <input type="number" value={val ?? ""} onChange={(e) => { const n = e.target.value === "" ? undefined : Number(e.target.value); answer(field.uid, n); }} placeholder="Enter value…" min={field.minValue} max={field.maxValue} className={mInputCls} />
+        <ThresholdBadge field={field} value={val} />
+      </>);
+    }
+    if (field.typeId === "date")     return mWrap(<input type="date"           value={val || ""} onChange={(e) => answer(field.uid, e.target.value)} min={field.minDate} max={field.maxDate} className={mInputCls} />);
+    if (field.typeId === "time")     return mWrap(<input type="time"           value={val || ""} onChange={(e) => answer(field.uid, e.target.value)} min={field.minTime} max={field.maxTime} className={mInputCls} />);
+    if (field.typeId === "datetime") return mWrap(<input type="datetime-local" value={val || ""} onChange={(e) => answer(field.uid, e.target.value)} className={mInputCls} />);
+
+    // ── Photo / Video / File ───────────────────────────────────────────────────
+    if (field.typeId === "photo")     return mWrap(<FileUpload value={val} onChange={(v) => answer(field.uid, v)} accept="image/*"  label="Take a photo or upload" icon={Camera}    maxSizeMB={field.maxFileSize || 10} />);
+    if (field.typeId === "video")     return mWrap(<FileUpload value={val} onChange={(v) => answer(field.uid, v)} accept="video/*"  label="Record or upload video" icon={Video}     maxSizeMB={field.maxFileSize || 50} />);
+    if (field.typeId === "file")      return mWrap(<FileUpload value={val} onChange={(v) => answer(field.uid, v)} accept="*/*"      label="Attach a file"          icon={Paperclip} maxSizeMB={field.maxFileSize || 25} />);
+
+    // ── Signature ──────────────────────────────────────────────────────────────
+    if (field.typeId === "signature") return mWrap(<SignaturePad value={val || ""} onChange={(v) => answer(field.uid, v)} />);
+
+    // ── Location ───────────────────────────────────────────────────────────────
+    if (field.typeId === "location") return mWrap(<LocationField field={field} value={val} onChange={(v) => answer(field.uid, v)} inputCls={mInputCls} />);
+
+    // ── Temperature ────────────────────────────────────────────────────────────
+    if (field.typeId === "temperature") {
+      const unit = field.unit || "celsius";
+      return mWrap(<>
+        <div className="flex gap-2">
+          <input type="number" value={val ?? ""} onChange={(e) => { const n = e.target.value === "" ? undefined : Number(e.target.value); answer(field.uid, n); }} placeholder="Enter temperature" step="0.1" className={mInputCls} />
+          <div className="px-4 py-4 bg-orange-50 border-2 border-orange-200 rounded-2xl text-sm font-bold text-orange-700 whitespace-nowrap flex items-center gap-1.5">
+            <Thermometer className="w-4 h-4" /> °{unit === "celsius" ? "C" : "F"}
+          </div>
+        </div>
+        {val !== undefined && val !== null && (
+          <p className="text-xs text-gray-400 mt-1">{unit === "celsius" ? `= ${((val * 9) / 5 + 32).toFixed(1)} °F` : `= ${(((val - 32) * 5) / 9).toFixed(1)} °C`}</p>
+        )}
+      </>);
+    }
+
+    // ── Barcode ────────────────────────────────────────────────────────────────
+    if (field.typeId === "barcode") {
+      return mWrap(<>
+        <div className="flex gap-2">
+          <input type="text" value={val || ""} onChange={(e) => answer(field.uid, e.target.value)} placeholder="Scan or type barcode…" className={mInputCls} />
+          <button type="button" className="px-4 py-4 bg-gray-100 border-2 border-gray-200 rounded-2xl active:bg-gray-200 shrink-0"><ScanLine className="w-5 h-5 text-gray-600" /></button>
+        </div>
+        <p className="text-xs text-gray-400 mt-1">Use a scanner or type the code manually</p>
+      </>);
+    }
+
+    // ── Formula ────────────────────────────────────────────────────────────────
+    if (field.typeId === "formula") {
+      return mWrap(
+        <div className="flex items-center gap-3 px-4 py-4 bg-purple-50 border border-purple-100 rounded-2xl">
+          <Calculator className="w-6 h-6 text-purple-500 shrink-0" />
+          <div>
+            <p className="text-xs text-purple-600 font-medium mb-0.5">Calculated Value</p>
+            <p className="text-2xl font-bold text-purple-800">{totalScore}</p>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Fallback ───────────────────────────────────────────────────────────────
+    return renderField(field);
+  };
+
   // ── Loading / error states ─────────────────────────────────────────────────
   if (loading) {
     return (
@@ -1529,9 +2076,215 @@ export function ChecklistExecution({ checklistId, assignmentId, onBack, onSubmit
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
+  // ── Shared helpers ──────────────────────────────────────────────────────────
+  const priorityBadgeCls = (p: string) =>
+    p === "urgent" ? "bg-red-100 text-red-700 border border-red-200" :
+    p === "high"   ? "bg-orange-100 text-orange-700 border border-orange-200" :
+    p === "normal" ? "bg-blue-100 text-blue-700 border border-blue-200" :
+                     "bg-gray-100 text-gray-600 border border-gray-200";
+
+  // ── Count answerable fields and build an ordered index for field numbering ──
+  let mobileFieldCounter = 0;
+
   return (
     <>
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-teal-50/20">
+    {/* ═══════════════════════════════════════════════════════════════════════
+        MOBILE LAYOUT  (hidden on sm+)
+    ═══════════════════════════════════════════════════════════════════════ */}
+    <div className="block sm:hidden min-h-screen bg-gray-50">
+
+      {/* ── Sticky header ─────────────────────────────────────────────────── */}
+      <header className="sticky top-0 z-30 bg-white border-b border-gray-100 shadow-sm">
+        <div className="flex items-center gap-3 px-4 pt-3 pb-2">
+          <button type="button" onClick={onBack}
+            className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100 active:bg-gray-200 shrink-0">
+            <ArrowLeft className="w-5 h-5 text-gray-600" />
+          </button>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-gray-800 truncate leading-tight">{checklist.title}</p>
+            {checklist.category && <p className="text-[11px] text-gray-400 truncate">{checklist.category}</p>}
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="text-sm font-bold text-teal-600 leading-tight">{answeredCount}<span className="text-gray-300">/{answerableFields.length}</span></p>
+            <p className="text-[10px] text-gray-400 uppercase tracking-wide">answered</p>
+          </div>
+        </div>
+        {/* Progress bar */}
+        <div className="relative h-2 bg-gray-100 mx-4 mb-3 rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ease-out ${completion === 100 ? "bg-green-500" : "bg-gradient-to-r from-teal-400 to-teal-500"}`}
+            style={{ width: `${completion}%` }}
+          />
+        </div>
+      </header>
+
+      {/* ── Draft restore card ─────────────────────────────────────────────── */}
+      {showDraftBanner && pendingDraft && (
+        <div className="mx-4 mt-4 p-4 bg-amber-50 border-2 border-amber-200 rounded-2xl">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-9 h-9 bg-amber-100 rounded-xl flex items-center justify-center shrink-0">
+              <BookOpen className="w-5 h-5 text-amber-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-amber-900">Saved draft found</p>
+              <p className="text-xs text-amber-600 mt-0.5">
+                {pendingDraft.answers?.length || 0} answers · {formatSavedTime(new Date(pendingDraft.updatedAt || pendingDraft.submittedAt))}
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={startFresh}
+              className="py-3 rounded-xl border border-amber-300 text-sm font-semibold text-amber-700 active:bg-amber-100 transition-colors">
+              Start Fresh
+            </button>
+            <button type="button" onClick={restoreDraft}
+              className="py-3 rounded-xl bg-amber-500 text-white text-sm font-semibold active:bg-amber-600 transition-colors shadow-sm">
+              Restore Draft
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Draft restored strip ───────────────────────────────────────────── */}
+      {draftRestored && !showDraftBanner && (
+        <div className="mx-4 mt-4 flex items-center gap-2 px-3 py-2.5 bg-green-50 border border-green-200 rounded-xl">
+          <Check className="w-4 h-4 text-green-500 shrink-0" />
+          <p className="text-xs font-semibold text-green-700">Draft restored · picking up where you left off</p>
+        </div>
+      )}
+
+      {/* ── Metadata chips ─────────────────────────────────────────────────── */}
+      <div className="px-4 mt-4 flex items-center gap-2 flex-wrap">
+        {checklist.priority && (
+          <span className={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${priorityBadgeCls(checklist.priority)}`}>
+            {checklist.priority.charAt(0).toUpperCase() + checklist.priority.slice(1)} priority
+          </span>
+        )}
+        {checklist.location && (
+          <span className="flex items-center gap-1 px-2.5 py-1 bg-gray-100 border border-gray-200 rounded-full text-[11px] text-gray-600">
+            <MapPin className="w-3 h-3" />{checklist.location}
+          </span>
+        )}
+        {lastSaved && (
+          <span className="flex items-center gap-1 px-2.5 py-1 bg-gray-100 border border-gray-200 rounded-full text-[11px] text-gray-500">
+            <Clock className="w-3 h-3" />Saved {formatSavedTime(lastSaved)}
+          </span>
+        )}
+        {totalScore > 0 && (
+          <span className="flex items-center gap-1 px-2.5 py-1 bg-teal-50 border border-teal-200 rounded-full text-[11px] text-teal-700 font-semibold">
+            {totalScore} pts
+          </span>
+        )}
+      </div>
+
+      {/* ── Notes ─────────────────────────────────────────────────────────── */}
+      {checklist.notes && (
+        <div className="mx-4 mt-3 px-4 py-3 bg-blue-50 border border-blue-100 rounded-2xl">
+          <p className="text-xs text-blue-700 leading-relaxed">{checklist.notes}</p>
+        </div>
+      )}
+
+      {/* ── Field errors summary ───────────────────────────────────────────── */}
+      {Object.keys(errors).length > 0 && (
+        <div className="mx-4 mt-3 flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl">
+          <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+          <p className="text-xs font-semibold text-red-600">{Object.keys(errors).length} field{Object.keys(errors).length > 1 ? "s" : ""} need attention</p>
+        </div>
+      )}
+
+      {/* ── Fields ─────────────────────────────────────────────────────────── */}
+      <div className="px-4 mt-4 space-y-3 pb-4">
+        {(checklist.canvasFields || []).length === 0 ? (
+          <div className="flex flex-col items-center py-20 text-center">
+            <AlertCircle className="w-12 h-12 text-gray-200 mb-3" />
+            <p className="text-sm text-gray-400">This checklist has no fields yet.</p>
+          </div>
+        ) : (
+          (checklist.canvasFields || []).map((field: any) => {
+            const isAnswerable = !["section", "separator", "instruction"].includes(field.typeId);
+            const idx = isAnswerable ? ++mobileFieldCounter : undefined;
+            return (
+              <div key={field.uid}>
+                {renderFieldMobile(field, idx)}
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* ── CTA cards ──────────────────────────────────────────────────────── */}
+      <div className="px-4 mt-2 mb-3 space-y-3">
+        {/* Declare Tag */}
+        <button type="button" onClick={() => setShowTagModal(true)}
+          className="w-full flex items-center gap-3 px-4 py-4 bg-blue-50 border-2 border-blue-200 rounded-2xl active:bg-blue-100 transition-colors text-left">
+          <div className="w-10 h-10 bg-blue-100 border border-blue-300 rounded-xl flex items-center justify-center shrink-0">
+            <Tag className="w-5 h-5 text-blue-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-blue-800">Spot an anomaly?</p>
+            <p className="text-xs text-blue-500 mt-0.5">
+              {tagCount > 0 ? `${tagCount} tag${tagCount > 1 ? "s" : ""} declared` : "Declare a tag to flag issues"}
+            </p>
+          </div>
+          {tagCount > 0 && (
+            <span className="shrink-0 w-7 h-7 bg-blue-500 text-white text-xs font-bold rounded-full flex items-center justify-center">{tagCount}</span>
+          )}
+        </button>
+
+        {/* Immediate Action */}
+        <button type="button" onClick={() => setShowImmediateActionModal(true)}
+          className="w-full flex items-center gap-3 px-4 py-4 bg-orange-50 border-2 border-orange-200 rounded-2xl active:bg-orange-100 transition-colors text-left">
+          <div className="w-10 h-10 bg-orange-100 border border-orange-300 rounded-xl flex items-center justify-center shrink-0">
+            <Zap className="w-5 h-5 text-orange-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-orange-800">Need immediate action?</p>
+            <p className="text-xs text-orange-500 mt-0.5">
+              {immediateActionCount > 0 ? `${immediateActionCount} action${immediateActionCount > 1 ? "s" : ""} logged` : "Log a corrective action"}
+            </p>
+          </div>
+          {immediateActionCount > 0 && (
+            <span className="shrink-0 w-7 h-7 bg-orange-500 text-white text-xs font-bold rounded-full flex items-center justify-center">{immediateActionCount}</span>
+          )}
+        </button>
+      </div>
+
+      {/* Spacer for fixed bottom bar */}
+      <div className="h-24" />
+
+      {/* ── Fixed bottom bar ───────────────────────────────────────────────── */}
+      <div className="sm:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-sm border-t border-gray-100 px-4 py-3 shadow-lg">
+        {/* Completion indicator */}
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[11px] text-gray-400">
+            <span className="font-semibold text-gray-600">{answerableFields.filter((f: any) => f.required).length}</span> required
+            {Object.keys(errors).length > 0 && <span className="text-red-500 ml-2">· {Object.keys(errors).length} incomplete</span>}
+          </p>
+          <p className={`text-[11px] font-semibold ${completion === 100 ? "text-green-600" : "text-teal-600"}`}>{completion}% complete</p>
+        </div>
+        <div className="flex gap-3">
+          <button type="button" onClick={() => saveDraft(false)} disabled={savingDraft}
+            className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl border-2 border-gray-200 text-sm font-semibold text-gray-600 bg-white active:bg-gray-50 disabled:opacity-40 transition-colors">
+            {savingDraft ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Save Draft
+          </button>
+          <button type="button" onClick={handleSubmit} disabled={submitting}
+            className={`flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl text-white text-sm font-semibold shadow-md disabled:opacity-40 transition-all active:scale-[0.98] ${
+              completion === 100
+                ? "bg-teal-500 shadow-teal-200 active:bg-teal-600"
+                : "bg-teal-400 shadow-teal-100 active:bg-teal-500"
+            }`}>
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            Submit
+          </button>
+        </div>
+      </div>
+    </div>
+
+    {/* ═══════════════════════════════════════════════════════════════════════
+        DESKTOP LAYOUT  (hidden on mobile)
+    ═══════════════════════════════════════════════════════════════════════ */}
+    <div className="hidden sm:block min-h-screen bg-gradient-to-br from-slate-50 via-white to-teal-50/20">
 
       {/* ── Draft Restore Banner ─────────────────────────────────────────── */}
       {showDraftBanner && pendingDraft && (
@@ -1805,6 +2558,20 @@ export function ChecklistExecution({ checklistId, assignmentId, onBack, onSubmit
         </div>
       </div>
     </div>
+
+    {/* ── Completion Actions Modal ──────────────────────────────────── */}
+    {showCompletionModal && (
+      <CompletionActionsModal
+        checklistId={checklistId}
+        checklistTitle={checklist?.title || ""}
+        checklistLocation={checklist?.location || ""}
+        reviewers={checklist?.managerName ? [checklist.managerName] : []}
+        submissionId={pendingSubmissionId}
+        onClose={() => setShowCompletionModal(false)}
+        onConfirm={doSubmit}
+        submitting={submitting}
+      />
+    )}
 
     {/* ── Tag Declaration Modal ─────────────────────────────────────── */}
     {showTagModal && (

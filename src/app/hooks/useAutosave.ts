@@ -151,6 +151,29 @@ export function useAutosave<T>(
           pendingSaveRef.current = null;
           setTimeout(() => setStatus('idle'), 3000);
         } catch (saveError: any) {
+          // ── Network-level failure (no response received) ────────────────
+          // Treat exactly like offline: queue the data and wait for reconnection.
+          // This covers cold-starting edge functions, momentary connectivity blips,
+          // and "Failed to fetch" errors in general — none of which are the user's fault.
+          const isNetworkError =
+            saveError instanceof TypeError ||
+            saveError?.message === 'Failed to fetch' ||
+            saveError?.message === 'NetworkError when attempting to fetch resource.' ||
+            saveError?.name === 'TypeError';
+
+          if (isNetworkError) {
+            console.warn('Autosave: network error, queuing for retry:', saveError.message);
+            isOnlineRef.current = false;
+            pendingSaveRef.current = dataToSave;
+            setSavedData(dataToSave);
+            setLastSaved(Date.now());
+            setStatus('saved');
+            setHasUnsavedChanges(false);
+            // Poll until the server is reachable again, then flush
+            scheduleReconnectFlush();
+            return;
+          }
+
           // ── Duplicate detected (same name + frequency) ─────────────────
           if (saveError instanceof DuplicateChecklistError || saveError?.name === 'DuplicateChecklistError') {
             setStatus('conflict');
@@ -197,6 +220,30 @@ export function useAutosave<T>(
     }
   }, [checklistId, version, onSave, onConflict, enableOffline]);
 
+  // ── Reconnect flush — polls every 5 s until the server responds ──────────
+  const reconnectTimerRef = useRef<NodeJS.Timeout>();
+  const scheduleReconnectFlush = useCallback(() => {
+    if (reconnectTimerRef.current) return; // already scheduled
+    reconnectTimerRef.current = setInterval(async () => {
+      if (!pendingSaveRef.current) {
+        clearInterval(reconnectTimerRef.current);
+        reconnectTimerRef.current = undefined;
+        return;
+      }
+      try {
+        // Lightweight reachability probe via HEAD on the same origin
+        await fetch(window.location.origin + '/favicon.ico', { method: 'HEAD', cache: 'no-store' });
+        isOnlineRef.current = true;
+        clearInterval(reconnectTimerRef.current);
+        reconnectTimerRef.current = undefined;
+        const pending = pendingSaveRef.current;
+        if (pending) performSave(pending);
+      } catch {
+        // Still unreachable — keep waiting
+      }
+    }, 5000);
+  }, []);
+
   // ── Debounced trigger ────────────────────────────────────────────────────
   const triggerSave = useCallback((newData: T) => {
     setHasUnsavedChanges(true);
@@ -226,7 +273,10 @@ export function useAutosave<T>(
 
   // Cleanup
   useEffect(() => {
-    return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      if (reconnectTimerRef.current) clearInterval(reconnectTimerRef.current);
+    };
   }, []);
 
   // Save before unload
