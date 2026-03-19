@@ -180,7 +180,7 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
   );
 
   const mobileLayout = (
-    <div className="block sm:hidden min-h-screen bg-gray-50 flex flex-col">
+    <div className="sm:hidden flex flex-col min-h-screen bg-gray-50">
       {/* ── Sticky header ── */}
       <header className="sticky top-0 z-30 bg-white border-b border-gray-100 shadow-sm">
         <div className="flex items-center justify-between px-4 py-3">
@@ -224,7 +224,8 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
       </header>
 
       {/* ── Scrollable body ── */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 pb-32 space-y-4">
+      <div className="flex-1 overflow-y-auto px-4 py-4 pb-32 space-y-4"
+        style={{ WebkitOverflowScrolling: "touch" }}>
 
         {/* Section 1 — Submission settings */}
         <MobileSection title="Submission settings">

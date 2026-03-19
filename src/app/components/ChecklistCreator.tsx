@@ -186,8 +186,8 @@ export function ChecklistCreator({ onBack, checklistId: existingChecklistId, onO
 
   return (
     <div className="relative">
-      {/* Autosave Indicator - Floating Top Right */}
-      <div className="fixed top-6 right-6 z-50">
+      {/* Autosave Indicator - Floating Top Right (desktop only) */}
+      <div className="hidden sm:block fixed top-6 right-6 z-50 pointer-events-none">
         <AutosaveIndicator
           status={status}
           lastSaved={lastSaved}
@@ -197,10 +197,10 @@ export function ChecklistCreator({ onBack, checklistId: existingChecklistId, onO
         />
       </div>
 
-      {/* Checklist Name - Floating Top Left */}
+      {/* Checklist Name - Floating Top Left (desktop only) */}
       {checklistData.title && (
-        <div className="fixed top-6 left-6 z-50">
-          <div className="px-4 py-2 bg-white/95 backdrop-blur-sm border border-gray-200 rounded-xl shadow-sm">
+        <div className="hidden sm:block fixed top-6 left-6 z-50 pointer-events-none">
+          <div className="px-4 py-2 bg-white/95 border border-gray-200 rounded-xl shadow-sm">
             <p className="text-[10px] text-gray-400 uppercase tracking-wide">Draft</p>
             <p className="text-sm text-gray-700 font-medium mt-0.5">{checklistData.title}</p>
           </div>

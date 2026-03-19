@@ -88,7 +88,7 @@ export function NavDrawer({
       {/* ── Drawer panel ── */}
       <div
         className={`fixed left-0 top-0 bottom-0 z-50 w-72 bg-white shadow-2xl flex flex-col transition-transform duration-200 ease-out ${
-          open ? "translate-x-0" : "-translate-x-full"
+          open ? "translate-x-0 pointer-events-auto" : "-translate-x-full pointer-events-none"
         }`}
         role="navigation"
         aria-label="Main navigation"
