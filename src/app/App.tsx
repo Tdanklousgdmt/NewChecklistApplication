@@ -6,11 +6,15 @@ import { RoleSelection } from "./components/RoleSelection";
 import { ChecklistCreator } from "./components/ChecklistCreator";
 import { ChecklistExecution } from "./components/ChecklistExecution";
 import { ValidationScreen } from "./components/ValidationScreen";
+import { NavDrawer } from "./components/NavDrawer";
 import { Toaster } from "sonner";
+
+type AppView = "dashboard" | "create" | "execute" | "validate" | "view" | "library" | "checklist-detail";
 
 export default function App() {
   const [role, setRole] = useState<"user" | "manager" | null>(null);
-  const [view, setView] = useState<"dashboard" | "create" | "execute" | "validate" | "view" | "library" | "checklist-detail">("dashboard");
+  const [view, setView] = useState<AppView>("dashboard");
+  const [navOpen, setNavOpen] = useState(false);
 
   // Navigation state
   const [activeChecklistId, setActiveChecklistId] = useState<string | null>(null);
@@ -19,15 +23,27 @@ export default function App() {
 
   // Persist role selection
   useEffect(() => {
-    const savedRole = localStorage.getItem('echeck_user_role') as "user" | "manager" | null;
+    const savedRole = localStorage.getItem("echeck_user_role") as "user" | "manager" | null;
     if (savedRole) setRole(savedRole);
   }, []);
 
   useEffect(() => {
-    if (role) localStorage.setItem('echeck_user_role', role);
+    if (role) localStorage.setItem("echeck_user_role", role);
   }, [role]);
 
-  // Role selection screen
+  // Global navigate handler used by the NavDrawer
+  const handleNavNavigate = (dest: "dashboard" | "library" | "create") => {
+    setActiveChecklistId(null);
+    setActiveAssignmentId(null);
+    setActiveSubmissionId(null);
+    if (dest === "create") {
+      setView("create");
+    } else {
+      setView(dest);
+    }
+  };
+
+  // Role selection screen — no nav
   if (role === null) {
     return (
       <>
@@ -37,57 +53,43 @@ export default function App() {
     );
   }
 
-  // Execute checklist
+  // Execute checklist — full-screen flow, no nav
   if (view === "execute" && activeChecklistId) {
     return (
       <>
         <ChecklistExecution
           checklistId={activeChecklistId}
           assignmentId={activeAssignmentId || undefined}
-          onBack={() => {
-            setView("dashboard");
-            setActiveChecklistId(null);
-            setActiveAssignmentId(null);
-          }}
-          onSubmitted={() => {
-            setView("dashboard");
-            setActiveChecklistId(null);
-            setActiveAssignmentId(null);
-          }}
+          onBack={() => { setView("dashboard"); setActiveChecklistId(null); setActiveAssignmentId(null); }}
+          onSubmitted={() => { setView("dashboard"); setActiveChecklistId(null); setActiveAssignmentId(null); }}
         />
         <Toaster position="top-right" richColors />
       </>
     );
   }
 
-  // Validate submission
+  // Validate submission — full-screen flow, no nav
   if (view === "validate" && activeSubmissionId) {
     return (
       <>
         <ValidationScreen
           submissionId={activeSubmissionId}
-          onBack={() => {
-            setView("dashboard");
-            setActiveSubmissionId(null);
-          }}
-          onValidated={() => {
-            setView("dashboard");
-            setActiveSubmissionId(null);
-          }}
+          onBack={() => { setView("dashboard"); setActiveSubmissionId(null); }}
+          onValidated={() => { setView("dashboard"); setActiveSubmissionId(null); }}
         />
         <Toaster position="top-right" richColors />
       </>
     );
   }
 
-  // View/edit checklist
-  if (view === "view" && activeChecklistId) {
+  // Create / edit checklist — focused flow, no nav
+  if (view === "create" || (view === "view" && activeChecklistId)) {
     return (
       <>
         <ChecklistCreator
-          checklistId={activeChecklistId}
+          checklistId={view === "view" ? activeChecklistId! : undefined}
           onBack={() => {
-            setView("library");
+            setView(view === "view" ? "library" : "dashboard");
             setActiveChecklistId(null);
           }}
         />
@@ -96,26 +98,32 @@ export default function App() {
     );
   }
 
-  // Create checklist flow
-  if (view === "create") {
-    return (
-      <>
-        <ChecklistCreator onBack={() => setView("dashboard")} />
-        <Toaster position="top-right" richColors />
-      </>
-    );
-  }
+  // ── Main navigable views — all share the NavDrawer ──
+
+  const navDrawer = (
+    <NavDrawer
+      open={navOpen}
+      onClose={() => setNavOpen(false)}
+      currentView={view}
+      role={role}
+      onNavigate={handleNavNavigate}
+      onSwitchRole={() => {
+        localStorage.removeItem("echeck_user_role");
+        setRole(null);
+        setView("dashboard");
+      }}
+    />
+  );
 
   // Checklist detail page
   if (view === "checklist-detail" && activeChecklistId) {
     return (
       <>
+        {navDrawer}
         <ChecklistDetail
           checklistId={activeChecklistId}
-          onBack={() => {
-            setView("library");
-            setActiveChecklistId(null);
-          }}
+          onBack={() => { setView("library"); setActiveChecklistId(null); }}
+          onOpenNav={() => setNavOpen(true)}
         />
         <Toaster position="top-right" richColors />
       </>
@@ -126,25 +134,22 @@ export default function App() {
   if (view === "library") {
     return (
       <>
+        {navDrawer}
         <ChecklistLibrary
           onCreateNew={() => setView("create")}
-          onEditChecklist={(id) => {
-            setActiveChecklistId(id);
-            setView("view");
-          }}
-          onViewDetail={(id) => {
-            setActiveChecklistId(id);
-            setView("checklist-detail");
-          }}
+          onEditChecklist={(id) => { setActiveChecklistId(id); setView("view"); }}
+          onViewDetail={(id) => { setActiveChecklistId(id); setView("checklist-detail"); }}
+          onOpenNav={() => setNavOpen(true)}
         />
         <Toaster position="top-right" richColors />
       </>
     );
   }
 
-  // Dashboard view
+  // Dashboard view (default)
   return (
     <>
+      {navDrawer}
       <ChecklistDashboardReal
         role={role}
         onCreateNew={() => setView("create")}
@@ -153,15 +158,10 @@ export default function App() {
           setActiveAssignmentId(assignmentId || null);
           setView("execute");
         }}
-        onViewChecklist={(checklistId) => {
-          setActiveChecklistId(checklistId);
-          setView("view");
-        }}
-        onValidateSubmission={(submissionId) => {
-          setActiveSubmissionId(submissionId);
-          setView("validate");
-        }}
+        onViewChecklist={(checklistId) => { setActiveChecklistId(checklistId); setView("view"); }}
+        onValidateSubmission={(submissionId) => { setActiveSubmissionId(submissionId); setView("validate"); }}
         onOpenLibrary={() => setView("library")}
+        onOpenNav={() => setNavOpen(true)}
       />
       <Toaster position="top-right" richColors />
     </>

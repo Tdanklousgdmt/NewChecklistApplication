@@ -18,6 +18,7 @@ import {
   RotateCcw,
   Save,
   ChevronDown,
+  Menu,
 } from "lucide-react";
 import { checklistService } from "../services/checklistService";
 import { CalendarView } from "./CalendarView";
@@ -29,6 +30,7 @@ interface ChecklistDashboardProps {
   onViewChecklist?: (checklistId: string) => void;
   onValidateSubmission?: (submissionId: string) => void;
   onOpenLibrary?: () => void;
+  onOpenNav?: () => void;
 }
 
 export function ChecklistDashboardReal({
@@ -38,6 +40,7 @@ export function ChecklistDashboardReal({
   onViewChecklist,
   onValidateSubmission,
   onOpenLibrary,
+  onOpenNav,
 }: ChecklistDashboardProps) {
   const [loading, setLoading] = useState(true);
   const [refreshingValidations, setRefreshingValidations] = useState(false);
@@ -177,7 +180,8 @@ export function ChecklistDashboardReal({
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-teal-50/30 flex flex-col">
       {/* ── Header ── */}
       <header className="bg-white border-b border-gray-100 px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between shadow-sm shrink-0">
-        <div className="flex items-center gap-1.5 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <BurgerBtn onClick={() => onOpenNav?.()} />
           <span className="text-[#2abaad] tracking-wide uppercase text-xs font-medium shrink-0">eCheck</span>
           <ChevronRight className="w-3 h-3 text-gray-300 shrink-0" />
           <span className="text-gray-700 tracking-wide uppercase text-xs truncate">
@@ -761,5 +765,18 @@ function EmptyState({
       <p className="text-gray-500 font-medium">{title}</p>
       <p className="text-sm text-gray-400 mt-1">{subtitle}</p>
     </div>
+  );
+}
+
+function BurgerBtn({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Open navigation menu"
+      className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500 shrink-0"
+    >
+      <Menu className="w-5 h-5" />
+    </button>
   );
 }
