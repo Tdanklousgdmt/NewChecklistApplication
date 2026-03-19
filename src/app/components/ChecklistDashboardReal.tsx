@@ -18,11 +18,19 @@ import {
   RotateCcw,
   Save,
   ChevronDown,
+  ChevronUp,
   Menu,
   BarChart3,
+  Share2,
+  QrCode,
+  Users,
+  Repeat,
+  ScanLine,
 } from "lucide-react";
 import { checklistService } from "../services/checklistService";
 import { CalendarView } from "./CalendarView";
+import { ShareChecklistModal } from "./ShareChecklistModal";
+import { QRScannerModal } from "./QRScannerModal";
 
 interface ChecklistDashboardProps {
   role: "user" | "manager";
@@ -33,6 +41,19 @@ interface ChecklistDashboardProps {
   onOpenLibrary?: () => void;
   onOpenNav?: () => void;
   onOpenReports?: () => void;
+}
+
+function formatFrequency(freq?: string): string {
+  switch (freq?.toUpperCase()) {
+    case "ONE_OFF":
+    case "ONE_TIME":  return "One-off";
+    case "PERMANENT": return "Always active";
+    case "RECURRING": return "Recurring";
+    case "DAILY":     return "Daily";
+    case "WEEKLY":    return "Weekly";
+    case "MONTHLY":   return "Monthly";
+    default:          return freq ?? "—";
+  }
 }
 
 export function ChecklistDashboardReal({
@@ -46,6 +67,9 @@ export function ChecklistDashboardReal({
   onOpenReports,
 }: ChecklistDashboardProps) {
   const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [shareItem, setShareItem] = useState<{ id: string; title: string } | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
   const [refreshingValidations, setRefreshingValidations] = useState(false);
   const [activeChecklists, setActiveChecklists] = useState<any[]>([]);
   const [draftChecklists, setDraftChecklists] = useState<any[]>([]);
@@ -180,6 +204,7 @@ export function ChecklistDashboardReal({
   }
 
   return (
+    <>
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-teal-50/30 flex flex-col">
       {/* ── Header ── */}
       <header className="bg-white border-b border-gray-100 px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between shadow-sm shrink-0">
@@ -198,6 +223,15 @@ export function ChecklistDashboardReal({
             {notifications.length > 0 && (
               <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
             )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setScannerOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl text-xs tracking-wide hover:bg-gray-50 transition-colors"
+            title="Scan QR Code"
+          >
+            <ScanLine className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Scan QR</span>
           </button>
           {onOpenLibrary && (
             <button
@@ -496,37 +530,65 @@ export function ChecklistDashboardReal({
                     {assignments.length === 0 ? (
                       <EmptyState icon={<CheckCircle2 className="w-12 h-12 text-gray-300" />} title="No pending tasks" subtitle="You're all caught up!" />
                     ) : (
-                      assignments.map((assignment: any) => (
-                        <div key={assignment.id} className="bg-gray-50 rounded-xl p-4 border border-gray-100 hover:border-teal-200 hover:shadow-sm transition-all">
-                          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                            <div className="flex-1 min-w-0">
-                              <h3 className="font-medium text-gray-800 mb-1 truncate">
-                                {assignment.checklist?.title || "Untitled Checklist"}
-                              </h3>
-                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-500">
-                                <span className="flex items-center gap-1">
-                                  <Calendar className="w-3.5 h-3.5" />
-                                  Assigned {formatDate(assignment.assignedAt)}
-                                </span>
-                                {assignment.checklist?.category && <><span>•</span><span>{assignment.checklist.category}</span></>}
-                                {assignment.checklist?.priority && (
-                                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${getPriorityColor(assignment.checklist.priority)}`}>
-                                    {assignment.checklist.priority}
-                                  </span>
-                                )}
-                              </div>
+                      assignments.map((assignment: any) => {
+                        const isOpen = expandedId === assignment.id;
+                        return (
+                          <div key={assignment.id} className={`bg-gray-50 rounded-xl border transition-all ${isOpen ? "border-teal-200 shadow-sm" : "border-gray-100 hover:border-teal-200 hover:shadow-sm"}`}>
+                            {/* Row header */}
+                            <div className="flex items-center gap-3 p-4">
+                              <button
+                                type="button"
+                                onClick={() => setExpandedId(isOpen ? null : assignment.id)}
+                                className="flex-1 min-w-0 text-left"
+                              >
+                                <div className="flex items-center gap-2 mb-1">
+                                  <h3 className="font-medium text-gray-800 truncate">
+                                    {assignment.checklist?.title || "Untitled Checklist"}
+                                  </h3>
+                                  {isOpen ? <ChevronUp className="w-3.5 h-3.5 text-gray-400 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 text-gray-400 shrink-0" />}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-500">
+                                  <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" />Assigned {formatDate(assignment.assignedAt)}</span>
+                                  {assignment.checklist?.category && <><span>•</span><span>{assignment.checklist.category}</span></>}
+                                  {assignment.checklist?.priority && (
+                                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${getPriorityColor(assignment.checklist.priority)}`}>
+                                      {assignment.checklist.priority}
+                                    </span>
+                                  )}
+                                </div>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onExecuteChecklist?.(assignment.checklistId, assignment.id)}
+                                className="flex items-center justify-center gap-2 px-4 py-2 bg-[#2abaad] text-white rounded-lg text-sm font-medium hover:bg-[#24a699] transition-colors shrink-0"
+                              >
+                                <PlayCircle className="w-4 h-4" />
+                                <span className="hidden sm:inline">Start</span>
+                              </button>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => onExecuteChecklist?.(assignment.checklistId, assignment.id)}
-                              className="flex items-center justify-center gap-2 px-4 py-2 bg-[#2abaad] text-white rounded-lg text-sm font-medium hover:bg-[#24a699] transition-colors w-full sm:w-auto shrink-0"
-                            >
-                              <PlayCircle className="w-4 h-4" />
-                              Start
-                            </button>
+                            {/* Expanded details */}
+                            {isOpen && (
+                              <div className="border-t border-teal-100 px-4 py-3 bg-white/60 rounded-b-xl space-y-2">
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                  <DetailPill icon={<Users className="w-3.5 h-3.5" />} label="Assigned to" value={assignment.checklist?.assignedTo || "All users"} />
+                                  <DetailPill icon={<Repeat className="w-3.5 h-3.5" />} label="Frequency" value={formatFrequency(assignment.checklist?.frequency)} />
+                                  {assignment.checklist?.location && (
+                                    <DetailPill icon={<Calendar className="w-3.5 h-3.5" />} label="Location" value={assignment.checklist.location} />
+                                  )}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setShareItem({ id: assignment.checklistId, title: assignment.checklist?.title || "Checklist" })}
+                                  className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-50 hover:border-teal-200 transition-colors"
+                                >
+                                  <Share2 className="w-3.5 h-3.5 text-[#2abaad]" />
+                                  Share & QR Code
+                                </button>
+                              </div>
+                            )}
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 )}
@@ -537,33 +599,48 @@ export function ChecklistDashboardReal({
                     {activeChecklists.length === 0 ? (
                       <EmptyState icon={<List className="w-12 h-12 text-gray-300" />} title="No active checklists" subtitle="Create your first checklist to get started" />
                     ) : (
-                      activeChecklists.map((checklist: any) => (
-                        <div key={checklist.id} className="bg-gray-50 rounded-xl p-4 border border-gray-100 hover:border-teal-200 hover:shadow-sm transition-all">
-                          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                            <div className="flex-1 min-w-0">
-                              <h3 className="font-medium text-gray-800 mb-1 truncate">{checklist.data.title}</h3>
-                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-500">
-                                <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" />Updated {formatDate(checklist.data.updatedAt)}</span>
-                                {checklist.data.category && <><span>•</span><span>{checklist.data.category}</span></>}
-                                {checklist.data.location && <><span>•</span><span>{checklist.data.location}</span></>}
-                                {checklist.data.priority && (
-                                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${getPriorityColor(checklist.data.priority)}`}>
-                                    {checklist.data.priority}
-                                  </span>
-                                )}
-                              </div>
+                      activeChecklists.map((checklist: any) => {
+                        const isOpen = expandedId === checklist.id;
+                        return (
+                          <div key={checklist.id} className={`bg-gray-50 rounded-xl border transition-all ${isOpen ? "border-teal-200 shadow-sm" : "border-gray-100 hover:border-teal-200 hover:shadow-sm"}`}>
+                            <div className="flex items-center gap-3 p-4">
+                              <button type="button" onClick={() => setExpandedId(isOpen ? null : checklist.id)} className="flex-1 min-w-0 text-left">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <h3 className="font-medium text-gray-800 truncate">{checklist.data.title}</h3>
+                                  {isOpen ? <ChevronUp className="w-3.5 h-3.5 text-gray-400 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 text-gray-400 shrink-0" />}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-500">
+                                  <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" />Updated {formatDate(checklist.data.updatedAt)}</span>
+                                  {checklist.data.category && <><span>•</span><span>{checklist.data.category}</span></>}
+                                  {checklist.data.priority && (
+                                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${getPriorityColor(checklist.data.priority)}`}>
+                                      {checklist.data.priority}
+                                    </span>
+                                  )}
+                                </div>
+                              </button>
+                              <button type="button" onClick={() => onViewChecklist?.(checklist.id)}
+                                className="flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors shrink-0">
+                                <Eye className="w-4 h-4" /><span className="hidden sm:inline">View</span>
+                              </button>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => onViewChecklist?.(checklist.id)}
-                              className="flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors w-full sm:w-auto shrink-0"
-                            >
-                              <Eye className="w-4 h-4" />
-                              View
-                            </button>
+                            {isOpen && (
+                              <div className="border-t border-teal-100 px-4 py-3 bg-white/60 rounded-b-xl space-y-2">
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                  <DetailPill icon={<Users className="w-3.5 h-3.5" />} label="Assigned to" value={checklist.data.assignedTo || "All users"} />
+                                  <DetailPill icon={<Repeat className="w-3.5 h-3.5" />} label="Frequency" value={formatFrequency(checklist.data.frequency)} />
+                                  {checklist.data.location && <DetailPill icon={<Calendar className="w-3.5 h-3.5" />} label="Location" value={checklist.data.location} />}
+                                </div>
+                                <button type="button"
+                                  onClick={() => setShareItem({ id: checklist.id, title: checklist.data.title })}
+                                  className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-50 hover:border-teal-200 transition-colors">
+                                  <Share2 className="w-3.5 h-3.5 text-[#2abaad]" />Share & QR Code
+                                </button>
+                              </div>
+                            )}
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 )}
@@ -693,30 +770,39 @@ export function ChecklistDashboardReal({
                     {draftChecklists.length === 0 ? (
                       <EmptyState icon={<FileEdit className="w-12 h-12 text-gray-300" />} title="No drafts" subtitle="Your draft checklists will appear here" />
                     ) : (
-                      draftChecklists.map((draft: any) => (
-                        <div key={draft.id} className="bg-gray-50 rounded-xl p-4 border border-gray-100 hover:border-teal-200 hover:shadow-sm transition-all">
-                          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <FileEdit className="w-4 h-4 text-slate-600 shrink-0" />
-                                <h3 className="font-medium text-gray-800 truncate">{draft.data.title}</h3>
-                              </div>
-                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-500">
-                                <span>Last edited {formatDate(draft.data.updatedAt)}</span>
-                                {draft.data.category && <><span>•</span><span>{draft.data.category}</span></>}
-                              </div>
+                      draftChecklists.map((draft: any) => {
+                        const isOpen = expandedId === draft.id;
+                        return (
+                          <div key={draft.id} className={`bg-gray-50 rounded-xl border transition-all ${isOpen ? "border-teal-200 shadow-sm" : "border-gray-100 hover:border-teal-200 hover:shadow-sm"}`}>
+                            <div className="flex items-center gap-3 p-4">
+                              <button type="button" onClick={() => setExpandedId(isOpen ? null : draft.id)} className="flex-1 min-w-0 text-left">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <FileEdit className="w-4 h-4 text-slate-600 shrink-0" />
+                                  <h3 className="font-medium text-gray-800 truncate">{draft.data.title}</h3>
+                                  {isOpen ? <ChevronUp className="w-3.5 h-3.5 text-gray-400 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 text-gray-400 shrink-0" />}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-500">
+                                  <span>Last edited {formatDate(draft.data.updatedAt)}</span>
+                                  {draft.data.category && <><span>•</span><span>{draft.data.category}</span></>}
+                                </div>
+                              </button>
+                              <button type="button" onClick={() => onViewChecklist?.(draft.id)}
+                                className="flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors shrink-0">
+                                <FileEdit className="w-4 h-4" /><span className="hidden sm:inline">Edit</span>
+                              </button>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => onViewChecklist?.(draft.id)}
-                              className="flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors w-full sm:w-auto shrink-0"
-                            >
-                              <FileEdit className="w-4 h-4" />
-                              Continue Editing
-                            </button>
+                            {isOpen && (
+                              <div className="border-t border-teal-100 px-4 py-3 bg-white/60 rounded-b-xl space-y-2">
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                  <DetailPill icon={<Users className="w-3.5 h-3.5" />} label="Assigned to" value={draft.data.assignedTo || "Not set"} />
+                                  <DetailPill icon={<Repeat className="w-3.5 h-3.5" />} label="Frequency" value={formatFrequency(draft.data.frequency)} />
+                                  {draft.data.location && <DetailPill icon={<Calendar className="w-3.5 h-3.5" />} label="Location" value={draft.data.location} />}
+                                </div>
+                              </div>
+                            )}
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 )}
@@ -726,6 +812,25 @@ export function ChecklistDashboardReal({
         </div>
       </div>
     </div>
+
+    {/* ── Modals ── */}
+    {shareItem && (
+      <ShareChecklistModal
+        checklistId={shareItem.id}
+        checklistTitle={shareItem.title}
+        onClose={() => setShareItem(null)}
+      />
+    )}
+    {scannerOpen && (
+      <QRScannerModal
+        onClose={() => setScannerOpen(false)}
+        onResult={(checklistId) => {
+          setScannerOpen(false);
+          onExecuteChecklist?.(checklistId);
+        }}
+      />
+    )}
+    </>
   );
 }
 
@@ -791,5 +896,17 @@ function BurgerBtn({ onClick }: { onClick: () => void }) {
     >
       <Menu className="w-5 h-5" />
     </button>
+  );
+}
+
+function DetailPill({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="flex items-start gap-2 min-w-0">
+      <span className="text-gray-400 shrink-0 mt-0.5">{icon}</span>
+      <div className="min-w-0">
+        <p className="text-[10px] text-gray-400 uppercase tracking-wide font-medium">{label}</p>
+        <p className="text-xs text-gray-700 font-medium truncate">{value}</p>
+      </div>
+    </div>
   );
 }

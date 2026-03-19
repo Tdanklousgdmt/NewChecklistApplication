@@ -9,6 +9,7 @@ import {
   UserCircle,
   ShieldCheck,
   BarChart3,
+  ScanLine,
 } from "lucide-react";
 
 type View = "dashboard" | "library" | "create" | "reports";
@@ -20,6 +21,7 @@ interface NavDrawerProps {
   role: "user" | "manager";
   onNavigate: (view: View) => void;
   onSwitchRole: () => void;
+  onOpenScanner?: () => void;
 }
 
 const NAV_ITEMS: { view: View; label: string; icon: React.ReactNode; managerOnly?: boolean }[] = [
@@ -55,6 +57,7 @@ export function NavDrawer({
   role,
   onNavigate,
   onSwitchRole,
+  onOpenScanner,
 }: NavDrawerProps) {
   // Close on Escape key
   useEffect(() => {
@@ -145,6 +148,20 @@ export function NavDrawer({
             );
           })}
         </nav>
+        {/* Scan QR — available to all roles */}
+        <div className="px-3 py-3 border-t border-gray-100">
+          <p className="px-3 pb-2 text-[10px] font-semibold text-gray-400 uppercase tracking-widest">
+            Quick Actions
+          </p>
+          <button
+            type="button"
+            onClick={() => { onOpenScanner?.(); onClose(); }}
+            className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-gray-600 hover:bg-gray-50 hover:text-gray-800"
+          >
+            <ScanLine className="w-5 h-5 text-gray-400 shrink-0" />
+            Scan QR Code
+          </button>
+        </div>
 
         {/* Footer — role indicator + switch */}
         <div className="px-3 pb-4 border-t border-gray-100 pt-4 space-y-2">

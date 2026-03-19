@@ -8,6 +8,7 @@ import { ChecklistCreator } from "./components/ChecklistCreator";
 import { ChecklistExecution } from "./components/ChecklistExecution";
 import { ValidationScreen } from "./components/ValidationScreen";
 import { NavDrawer } from "./components/NavDrawer";
+import { QRScannerModal } from "./components/QRScannerModal";
 import { Toaster } from "sonner";
 
 type AppView = "dashboard" | "create" | "execute" | "validate" | "view" | "library" | "checklist-detail" | "reports";
@@ -16,6 +17,7 @@ export default function App() {
   const [role, setRole] = useState<"user" | "manager" | null>(null);
   const [view, setView] = useState<AppView>("dashboard");
   const [navOpen, setNavOpen] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   const [activeChecklistId, setActiveChecklistId] = useState<string | null>(null);
   const [activeAssignmentId, setActiveAssignmentId] = useState<string | null>(null);
@@ -24,6 +26,18 @@ export default function App() {
   useEffect(() => {
     const savedRole = localStorage.getItem("echeck_user_role") as "user" | "manager" | null;
     if (savedRole) setRole(savedRole);
+  }, []);
+
+  // Handle QR code deep-link: ?checklist=ID
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const clId   = params.get("checklist");
+    if (clId) {
+      // Clean the URL without a page reload
+      window.history.replaceState({}, "", window.location.pathname);
+      setActiveChecklistId(clId);
+      setView("execute");
+    }
   }, []);
 
   useEffect(() => {
@@ -55,7 +69,13 @@ export default function App() {
     setView("dashboard");
   };
 
-  // Global nav drawer — always rendered once role is chosen
+  const handleQRResult = (checklistId: string) => {
+    setScannerOpen(false);
+    setActiveChecklistId(checklistId);
+    setView("execute");
+  };
+
+  // Global nav drawer + QR scanner modal — always rendered once role is chosen
   const navDrawer = (
     <NavDrawer
       open={navOpen}
@@ -64,13 +84,19 @@ export default function App() {
       role={role}
       onNavigate={handleNavNavigate}
       onSwitchRole={handleSwitchRole}
+      onOpenScanner={() => setScannerOpen(true)}
     />
+  );
+
+  const qrScanner = scannerOpen && (
+    <QRScannerModal onClose={() => setScannerOpen(false)} onResult={handleQRResult} />
   );
 
   if (view === "execute" && activeChecklistId) {
     return (
       <>
         {navDrawer}
+        {qrScanner}
         <ChecklistExecution
           checklistId={activeChecklistId}
           assignmentId={activeAssignmentId || undefined}
@@ -87,6 +113,7 @@ export default function App() {
     return (
       <>
         {navDrawer}
+        {qrScanner}
         <ValidationScreen
           submissionId={activeSubmissionId}
           onBack={() => { setView("dashboard"); setActiveSubmissionId(null); }}
@@ -102,6 +129,7 @@ export default function App() {
     return (
       <>
         {navDrawer}
+        {qrScanner}
         <ChecklistCreator
           checklistId={view === "view" ? activeChecklistId! : undefined}
           onBack={() => { setView(view === "view" ? "library" : "dashboard"); setActiveChecklistId(null); }}
@@ -116,6 +144,7 @@ export default function App() {
     return (
       <>
         {navDrawer}
+        {qrScanner}
         <ChecklistDetail
           checklistId={activeChecklistId}
           onBack={() => { setView("library"); setActiveChecklistId(null); }}
@@ -130,6 +159,7 @@ export default function App() {
     return (
       <>
         {navDrawer}
+        {qrScanner}
         <ReportsPage
           onOpenNav={openNav}
           onViewChecklist={(id) => { setActiveChecklistId(id); setView("checklist-detail"); }}
@@ -143,6 +173,7 @@ export default function App() {
     return (
       <>
         {navDrawer}
+        {qrScanner}
         <ChecklistLibrary
           onCreateNew={() => setView("create")}
           onEditChecklist={(id) => { setActiveChecklistId(id); setView("view"); }}
@@ -157,6 +188,7 @@ export default function App() {
   return (
     <>
       {navDrawer}
+        {qrScanner}
       <ChecklistDashboardReal
         role={role}
         onCreateNew={() => setView("create")}
