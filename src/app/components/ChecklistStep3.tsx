@@ -47,11 +47,13 @@ import {
   ListChecks,
   Shield,
   Film,
+  Menu,
 } from "lucide-react";
 
 interface ChecklistStep3Props {
   onBack?: () => void;
   onPublish?: () => void;
+  onOpenNav?: () => void;
   canvasFields: CanvasField[];
   metadata?: {
     title?: string;
@@ -128,7 +130,7 @@ function CollapsibleSection({ field, children }: { field: CanvasField; children:
   );
 }
 
-export function ChecklistStep3({ onBack, onPublish, canvasFields, metadata = {} }: ChecklistStep3Props) {
+export function ChecklistStep3({ onBack, onPublish, onOpenNav, canvasFields, metadata = {} }: ChecklistStep3Props) {
   const [published, setPublished] = useState(false);
   const [activeTab, setActiveTab] = useState<"summary" | "preview">("summary");
 
@@ -389,9 +391,15 @@ export function ChecklistStep3({ onBack, onPublish, canvasFields, metadata = {} 
       {/* Sticky header */}
       <header className="sticky top-0 z-30 bg-white border-b border-gray-100 shadow-sm shrink-0">
         <div className="flex items-center justify-between px-4 py-3">
-          <button type="button" onClick={onBack} className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100 active:bg-gray-200 transition-colors">
-            <ChevronLeft className="w-5 h-5 text-gray-600" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button type="button" onClick={onOpenNav} aria-label="Open menu"
+              className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-gray-100 active:bg-gray-200 transition-colors">
+              <Menu className="w-5 h-5 text-gray-500" />
+            </button>
+            <button type="button" onClick={onBack} className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100 active:bg-gray-200 transition-colors">
+              <ChevronLeft className="w-5 h-5 text-gray-600" />
+            </button>
+          </div>
           <div className="text-center">
             <p className="text-sm font-semibold text-gray-800">Preview & Publish</p>
             <p className="text-[11px] text-gray-400">Step 3 of 3</p>
@@ -674,6 +682,10 @@ export function ChecklistStep3({ onBack, onPublish, canvasFields, metadata = {} 
       {/* Header */}
       <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between shadow-sm shrink-0">
         <div className="flex items-center gap-2 text-sm">
+          <button type="button" onClick={onOpenNav} aria-label="Open menu"
+            className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500 shrink-0">
+            <Menu className="w-5 h-5" />
+          </button>
           <span className="text-[#2abaad] tracking-wide uppercase text-xs">
             Checklist Master
           </span>

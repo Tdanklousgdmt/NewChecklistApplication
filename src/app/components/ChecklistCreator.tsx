@@ -10,10 +10,11 @@ import { X, AlertTriangle, Loader2 } from "lucide-react";
 
 interface ChecklistCreatorProps {
   onBack: () => void;
-  checklistId?: string; // If provided, load and edit existing checklist
+  checklistId?: string;
+  onOpenNav?: () => void;
 }
 
-export function ChecklistCreator({ onBack, checklistId: existingChecklistId }: ChecklistCreatorProps) {
+export function ChecklistCreator({ onBack, checklistId: existingChecklistId, onOpenNav }: ChecklistCreatorProps) {
   const [step, setStep] = useState(1);
   const [checklistId, setChecklistId] = useState(existingChecklistId || '');
   // Ref keeps the ID current *immediately* after first creation so the next
@@ -215,6 +216,7 @@ export function ChecklistCreator({ onBack, checklistId: existingChecklistId }: C
             handleStepChange(2);
           }}
           onCancel={handleCancel}
+          onOpenNav={onOpenNav}
         />
       )}
 
@@ -224,6 +226,7 @@ export function ChecklistCreator({ onBack, checklistId: existingChecklistId }: C
           onNext={() => handleStepChange(3)}
           canvasFields={checklistData.canvasFields}
           setCanvasFields={handleSetCanvasFields}
+          onOpenNav={onOpenNav}
         />
       )}
 
@@ -231,6 +234,7 @@ export function ChecklistCreator({ onBack, checklistId: existingChecklistId }: C
         <ChecklistStep3
           onBack={() => handleStepChange(2)}
           canvasFields={checklistData.canvasFields}
+          onOpenNav={onOpenNav}
           metadata={{
             title: checklistData.title,
             category: checklistData.category,

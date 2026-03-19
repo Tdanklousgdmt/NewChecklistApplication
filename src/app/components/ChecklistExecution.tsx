@@ -1,7 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import React from "react";
 import {
-  ArrowLeft, CheckCircle2, Loader2, Send, AlertCircle,
+  ArrowLeft, CheckCircle2, Loader2, Send, AlertCircle, Menu,
   Camera, Paperclip, PenTool, Star, MapPin, Thermometer,
   ScanLine, Calculator, ChevronDown, ChevronUp, X, Check,
   Video, RefreshCw, Navigation, Info, Heading1, Trash2, ZoomIn,
@@ -22,6 +22,7 @@ interface ChecklistExecutionProps {
   assignmentId?: string;
   onBack: () => void;
   onSubmitted?: () => void;
+  onOpenNav?: () => void;
 }
 
 // ─── Signature pad ─────────────────────────────────────────────────────────────
@@ -670,7 +671,7 @@ function SectionExecution({ field, renderField }: { field: any; renderField: (f:
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export function ChecklistExecution({ checklistId, assignmentId, onBack, onSubmitted }: ChecklistExecutionProps) {
+export function ChecklistExecution({ checklistId, assignmentId, onBack, onSubmitted, onOpenNav }: ChecklistExecutionProps) {
   const [loading, setLoading]       = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [checklist, setChecklist]   = useState<any>(null);
@@ -2096,10 +2097,16 @@ export function ChecklistExecution({ checklistId, assignmentId, onBack, onSubmit
       {/* ── Sticky header ─────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-30 bg-white border-b border-gray-100 shadow-sm">
         <div className="flex items-center gap-3 px-4 pt-3 pb-2">
-          <button type="button" onClick={onBack}
-            className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100 active:bg-gray-200 shrink-0">
-            <ArrowLeft className="w-5 h-5 text-gray-600" />
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            <button type="button" onClick={onOpenNav} aria-label="Open menu"
+              className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-gray-100 active:bg-gray-200 transition-colors">
+              <Menu className="w-5 h-5 text-gray-500" />
+            </button>
+            <button type="button" onClick={onBack}
+              className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100 active:bg-gray-200 shrink-0">
+              <ArrowLeft className="w-5 h-5 text-gray-600" />
+            </button>
+          </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-gray-800 truncate leading-tight">{checklist.title}</p>
             {checklist.category && <p className="text-[11px] text-gray-400 truncate">{checklist.category}</p>}
@@ -2334,13 +2341,19 @@ export function ChecklistExecution({ checklistId, assignmentId, onBack, onSubmit
       {/* Header */}
       <header className="bg-white border-b border-gray-100 px-6 py-4 sticky top-0 z-20 shadow-sm">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <button
-            type="button"
-            onClick={onBack}
-            className="flex items-center gap-2 text-gray-500 hover:text-gray-700 transition-colors text-sm font-medium"
-          >
-            <ArrowLeft className="w-4 h-4" /> Back
-          </button>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={onOpenNav} aria-label="Open menu"
+              className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500 shrink-0">
+              <Menu className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              onClick={onBack}
+              className="flex items-center gap-2 text-gray-500 hover:text-gray-700 transition-colors text-sm font-medium"
+            >
+              <ArrowLeft className="w-4 h-4" /> Back
+            </button>
+          </div>
 
           <div className="flex items-center gap-6">
             {/* Last saved indicator */}

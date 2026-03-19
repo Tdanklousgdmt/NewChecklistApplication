@@ -4,7 +4,7 @@ import {
   User, Calendar, Star, FileText, MessageSquare,
   PenTool, ImageIcon, X, Download, Maximize2, Eye,
   Video, Play, Pause, Volume2, VolumeX, Maximize,
-  Film, Paperclip,
+  Film, Paperclip, Menu,
 } from "lucide-react";
 import { checklistService } from "../services/checklistService";
 import { toast } from "sonner";
@@ -13,6 +13,7 @@ interface ValidationScreenProps {
   submissionId: string;
   onBack: () => void;
   onValidated?: () => void;
+  onOpenNav?: () => void;
 }
 
 // ─── Video lightbox ────────────────────────────────────────────────────────────
@@ -369,7 +370,7 @@ function getMediaSrc(value: any): string {
 }
 
 // ─── Main component ────────────────────────────────────────────────────────────
-export function ValidationScreen({ submissionId, onBack, onValidated }: ValidationScreenProps) {
+export function ValidationScreen({ submissionId, onBack, onValidated, onOpenNav }: ValidationScreenProps) {
   const [loading,          setLoading]          = useState(true);
   const [validating,       setValidating]        = useState(false);
   const [submission,       setSubmission]        = useState<any>(null);
@@ -594,10 +595,16 @@ export function ValidationScreen({ submissionId, onBack, onValidated }: Validati
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <header className="bg-white border-b border-gray-100 px-6 py-4 shadow-sm sticky top-0 z-10">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <button type="button" onClick={onBack}
-            className="flex items-center gap-2 text-gray-600 hover:text-gray-800 transition-colors text-sm font-medium">
-            <ArrowLeft className="w-4 h-4" /> Back to Dashboard
-          </button>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={onOpenNav} aria-label="Open menu"
+              className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500 shrink-0">
+              <Menu className="w-5 h-5" />
+            </button>
+            <button type="button" onClick={onBack}
+              className="flex items-center gap-2 text-gray-600 hover:text-gray-800 transition-colors text-sm font-medium">
+              <ArrowLeft className="w-4 h-4" /> Back to Dashboard
+            </button>
+          </div>
           <div className="flex items-center gap-2">
             {videoAnswers.length > 0 && (
               <span className="flex items-center gap-1.5 px-3 py-1 bg-teal-50 text-teal-700 rounded-full text-xs font-semibold">

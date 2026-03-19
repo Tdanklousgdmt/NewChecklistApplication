@@ -4,6 +4,7 @@ import {
   Copy,
   ChevronRight,
   ChevronLeft,
+  Menu,
   X,
   CheckCircle2,
   MapPin,
@@ -116,9 +117,10 @@ interface ChecklistStep1Props {
   onNext?: (data: any) => void;
   onCancel?: () => void;
   initialData?: any;
+  onOpenNav?: () => void;
 }
 
-export function ChecklistStep1({ onNext, onCancel, initialData }: ChecklistStep1Props) {
+export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: ChecklistStep1Props) {
   const [validateChecklist, setValidateChecklist] = useState(initialData?.validateChecklist ?? false);
   const [responseMode, setResponseMode] = useState<ResponseMode>(initialData?.responseMode ?? "DISCARD");
   const [managerName, setManagerName] = useState(initialData?.managerName ?? "");
@@ -182,13 +184,23 @@ export function ChecklistStep1({ onNext, onCancel, initialData }: ChecklistStep1
       {/* ── Sticky header ── */}
       <header className="sticky top-0 z-30 bg-white border-b border-gray-100 shadow-sm">
         <div className="flex items-center justify-between px-4 py-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100 active:bg-gray-200 transition-colors"
-          >
-            <ChevronLeft className="w-5 h-5 text-gray-600" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={onOpenNav}
+              className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-gray-100 active:bg-gray-200 transition-colors"
+              aria-label="Open menu"
+            >
+              <Menu className="w-5 h-5 text-gray-500" />
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100 active:bg-gray-200 transition-colors"
+            >
+              <ChevronLeft className="w-5 h-5 text-gray-600" />
+            </button>
+          </div>
 
           <div className="text-center">
             <p className="text-sm font-semibold text-gray-800">New Checklist</p>
@@ -676,6 +688,10 @@ export function ChecklistStep1({ onNext, onCancel, initialData }: ChecklistStep1
       {/* Header */}
       <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-2 text-sm">
+          <button type="button" onClick={onOpenNav} aria-label="Open menu"
+            className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500 shrink-0">
+            <Menu className="w-5 h-5" />
+          </button>
           <span className="text-[#2abaad] tracking-wide uppercase text-xs">Checklist Master</span>
           <ChevronRight className="w-3.5 h-3.5 text-gray-300" />
           <span className="text-gray-700 tracking-wide uppercase text-xs">New Checklist</span>
