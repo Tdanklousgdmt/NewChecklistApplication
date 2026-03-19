@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { ChecklistDashboardReal } from "./components/ChecklistDashboardReal";
-import { ChecklistLibraryDesign } from "./components/ChecklistLibraryDesign";
-import { ChecklistDetailDesign } from "./components/ChecklistDetailDesign";
+import { ChecklistLibrary } from "./components/ChecklistLibrary";
+import { ChecklistDetail } from "./components/ChecklistDetail";
 import { RoleSelection } from "./components/RoleSelection";
 import { ChecklistCreator } from "./components/ChecklistCreator";
 import { ChecklistExecution } from "./components/ChecklistExecution";
@@ -87,7 +87,7 @@ export default function App() {
         <ChecklistCreator
           checklistId={activeChecklistId}
           onBack={() => {
-            setView("dashboard");
+            setView("library");
             setActiveChecklistId(null);
           }}
         />
@@ -106,24 +106,36 @@ export default function App() {
     );
   }
 
-  // Checklist detail design preview
-  if (view === "checklist-detail") {
+  // Checklist detail page
+  if (view === "checklist-detail" && activeChecklistId) {
     return (
       <>
-        <ChecklistDetailDesign onBack={() => setView("library")} />
+        <ChecklistDetail
+          checklistId={activeChecklistId}
+          onBack={() => {
+            setView("library");
+            setActiveChecklistId(null);
+          }}
+        />
         <Toaster position="top-right" richColors />
       </>
     );
   }
 
-  // Library design preview
+  // Library page
   if (view === "library") {
     return (
       <>
-        <ChecklistLibraryDesign
+        <ChecklistLibrary
           onCreateNew={() => setView("create")}
-          onBack={() => setView("dashboard")}
-          onViewDetail={() => setView("checklist-detail")}
+          onEditChecklist={(id) => {
+            setActiveChecklistId(id);
+            setView("view");
+          }}
+          onViewDetail={(id) => {
+            setActiveChecklistId(id);
+            setView("checklist-detail");
+          }}
         />
         <Toaster position="top-right" richColors />
       </>
