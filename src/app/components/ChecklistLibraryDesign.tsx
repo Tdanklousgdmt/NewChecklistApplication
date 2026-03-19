@@ -9,7 +9,6 @@ import {
   Plus,
   Search,
   Filter,
-  MoreVertical,
   FileEdit,
   Copy,
   Trash2,
@@ -17,13 +16,13 @@ import {
   Clock,
   Library,
   Tag,
-  ChevronDown,
   X,
   ArrowUpDown,
   BookMarked,
   FileCheck2,
   LayoutList,
   SlidersHorizontal,
+  AlertTriangle,
 } from "lucide-react";
 
 /* ─────────────── Mock data ─────────────── */
@@ -150,7 +149,6 @@ export function ChecklistLibraryDesign({
   const [statusFilter, setStatusFilter] = useState<"all" | "published" | "draft">("all");
   const [categoryFilter, setCategoryFilter] = useState("All Categories");
   const [sortBy, setSortBy] = useState<"updated" | "title" | "version">("updated");
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
 
@@ -165,7 +163,7 @@ export function ChecklistLibraryDesign({
   }).sort((a, b) => {
     if (sortBy === "title") return a.title.localeCompare(b.title);
     if (sortBy === "version") return b.version.localeCompare(a.version);
-    return 0; // keep original order for "updated" (mock data already sorted)
+    return 0;
   });
 
   const publishedCount = MOCK_CHECKLISTS.filter((c) => c.status === "published").length;
@@ -337,19 +335,18 @@ export function ChecklistLibraryDesign({
             </div>
           </div>
 
-          {/* ── Checklist table / list ── */}
+          {/* ── Checklist list ── */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
 
-            {/* Desktop table header */}
-            <div className="hidden sm:grid grid-cols-[minmax(0,1fr)_120px_130px_90px_130px] gap-4 px-6 py-3 border-b border-gray-100 bg-gray-50/60">
+            {/* Desktop column header */}
+            <div className="hidden sm:grid grid-cols-[minmax(0,1fr)_110px_120px_80px_200px] gap-4 px-6 py-3 border-b border-gray-100 bg-gray-50/60">
               <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Checklist</span>
               <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</span>
               <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Category</span>
               <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Version</span>
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Last Updated</span>
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</span>
             </div>
 
-            {/* Rows */}
             {filtered.length === 0 ? (
               <div className="py-16 text-center">
                 <div className="w-14 h-14 bg-gray-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -364,23 +361,17 @@ export function ChecklistLibraryDesign({
                   <ChecklistRow
                     key={checklist.id}
                     checklist={checklist}
-                    menuOpen={openMenuId === checklist.id}
-                    onToggleMenu={() =>
-                      setOpenMenuId((prev) => (prev === checklist.id ? null : checklist.id))
-                    }
-                    onCloseMenu={() => setOpenMenuId(null)}
                     deleteConfirm={deleteConfirmId === checklist.id}
                     onDeleteRequest={() => setDeleteConfirmId(checklist.id)}
                     onDeleteCancel={() => setDeleteConfirmId(null)}
-                    onDeleteConfirm={() => setDeleteConfirmId(null)} // mock: no real deletion
+                    onDeleteConfirm={() => setDeleteConfirmId(null)}
                   />
                 ))}
               </div>
             )}
 
-            {/* Footer count */}
             {filtered.length > 0 && (
-              <div className="px-4 sm:px-6 py-3 border-t border-gray-50 bg-gray-50/40 flex items-center justify-between">
+              <div className="px-4 sm:px-6 py-3 border-t border-gray-50 bg-gray-50/40">
                 <p className="text-xs text-gray-400">
                   Showing <span className="font-medium text-gray-600">{filtered.length}</span> of{" "}
                   <span className="font-medium text-gray-600">{MOCK_CHECKLISTS.length}</span> checklists
@@ -439,18 +430,12 @@ function StatCard({
 
 function ChecklistRow({
   checklist,
-  menuOpen,
-  onToggleMenu,
-  onCloseMenu,
   deleteConfirm,
   onDeleteRequest,
   onDeleteCancel,
   onDeleteConfirm,
 }: {
   checklist: MockChecklist;
-  menuOpen: boolean;
-  onToggleMenu: () => void;
-  onCloseMenu: () => void;
   deleteConfirm: boolean;
   onDeleteRequest: () => void;
   onDeleteCancel: () => void;
@@ -459,25 +444,29 @@ function ChecklistRow({
   const isPublished = checklist.status === "published";
 
   const statusBadge = isPublished ? (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-teal-50 text-teal-700 border border-teal-200">
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-teal-50 text-teal-700 border border-teal-200 whitespace-nowrap">
       <CheckCircle2 className="w-3 h-3" />
       Published
     </span>
   ) : (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200 whitespace-nowrap">
       <Clock className="w-3 h-3" />
       Draft
     </span>
   );
 
-  /* Delete confirmation inline banner */
+  /* ── Delete confirmation inline banner ── */
   if (deleteConfirm) {
     return (
       <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-4 bg-red-50 border-l-4 border-red-400">
         <div className="flex items-center gap-3 min-w-0">
-          <Trash2 className="w-4 h-4 text-red-500 shrink-0" />
+          <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center shrink-0">
+            <AlertTriangle className="w-4 h-4 text-red-500" />
+          </div>
           <div className="min-w-0">
-            <p className="text-sm font-medium text-gray-800 truncate">Delete "{checklist.title}"?</p>
+            <p className="text-sm font-medium text-gray-800 truncate">
+              Delete "<span className="text-red-600">{checklist.title}</span>"?
+            </p>
             <p className="text-xs text-gray-500 mt-0.5">This action cannot be undone.</p>
           </div>
         </div>
@@ -492,8 +481,9 @@ function ChecklistRow({
           <button
             type="button"
             onClick={onDeleteConfirm}
-            className="px-3 py-1.5 text-xs font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors"
           >
+            <Trash2 className="w-3.5 h-3.5" />
             Delete
           </button>
         </div>
@@ -502,16 +492,13 @@ function ChecklistRow({
   }
 
   return (
-    <div className="relative group">
-
+    <>
       {/* ── Desktop row (sm+) ── */}
-      <div className="hidden sm:grid grid-cols-[minmax(0,1fr)_120px_130px_90px_130px] gap-4 items-center px-6 py-4 hover:bg-gray-50/60 transition-colors">
+      <div className="hidden sm:grid grid-cols-[minmax(0,1fr)_110px_120px_80px_200px] gap-4 items-center px-6 py-4 hover:bg-gray-50/60 transition-colors">
 
         {/* Title + meta */}
         <div className="min-w-0">
-          <div className="flex items-center gap-2 mb-0.5">
-            <p className="font-medium text-gray-800 truncate">{checklist.title}</p>
-          </div>
+          <p className="font-medium text-gray-800 truncate mb-0.5">{checklist.title}</p>
           <p className="text-xs text-gray-400 truncate">{checklist.description}</p>
           <div className="flex items-center gap-2 mt-1.5">
             <span className="flex items-center gap-1 text-[10px] text-gray-400">
@@ -519,7 +506,10 @@ function ChecklistRow({
               {checklist.fieldsCount} fields
             </span>
             <span className="text-[10px] text-gray-300">·</span>
-            <span className="text-[10px] text-gray-400">by {checklist.createdBy}</span>
+            <span className="flex items-center gap-1 text-[10px] text-gray-400">
+              <Clock className="w-2.5 h-2.5" />
+              {checklist.updatedAt}
+            </span>
           </div>
         </div>
 
@@ -538,47 +528,39 @@ function ChecklistRow({
           <span className="text-sm font-mono text-gray-500">{checklist.version}</span>
         </div>
 
-        {/* Updated + actions */}
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-sm text-gray-400 truncate">{checklist.updatedAt}</span>
-
-          {/* 3-dot menu (visible on row hover) */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={onToggleMenu}
-              className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
-              aria-label="Actions"
-            >
-              <MoreVertical className="w-4 h-4" />
-            </button>
-
-            {menuOpen && (
-              <>
-                {/* backdrop */}
-                <div className="fixed inset-0 z-10" onClick={onCloseMenu} />
-                <div className="absolute right-0 top-8 z-20 w-44 bg-white rounded-xl shadow-lg border border-gray-100 py-1 overflow-hidden">
-                  <MenuAction icon={<FileEdit className="w-4 h-4" />} label="Edit" onClick={onCloseMenu} />
-                  <MenuAction icon={<Copy className="w-4 h-4" />} label="Use as Template" onClick={onCloseMenu} />
-                  <div className="my-1 border-t border-gray-100" />
-                  <MenuAction
-                    icon={<Trash2 className="w-4 h-4" />}
-                    label="Delete"
-                    danger
-                    onClick={() => { onCloseMenu(); onDeleteRequest(); }}
-                  />
-                </div>
-              </>
-            )}
-          </div>
+        {/* Action buttons — always visible */}
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors"
+          >
+            <FileEdit className="w-3.5 h-3.5" />
+            Edit
+          </button>
+          <button
+            type="button"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#2abaad] bg-teal-50 border border-teal-200 rounded-lg hover:bg-teal-100 transition-colors"
+          >
+            <Copy className="w-3.5 h-3.5" />
+            Template
+          </button>
+          <button
+            type="button"
+            onClick={onDeleteRequest}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-red-500 bg-white border border-gray-200 rounded-lg hover:bg-red-50 hover:border-red-200 transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 
       {/* ── Mobile card (< sm) ── */}
-      <div className="sm:hidden px-4 py-4 hover:bg-gray-50/60 transition-colors">
-        <div className="flex items-start justify-between gap-3 mb-2">
+      <div className="sm:hidden px-4 py-4 hover:bg-gray-50/40 transition-colors">
+
+        {/* Title + badges row */}
+        <div className="flex items-start justify-between gap-2 mb-2">
           <div className="min-w-0 flex-1">
-            <p className="font-medium text-gray-800 leading-snug mb-1">{checklist.title}</p>
+            <p className="font-medium text-gray-800 leading-snug mb-1.5">{checklist.title}</p>
             <div className="flex flex-wrap items-center gap-1.5">
               {statusBadge}
               <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-600">
@@ -587,98 +569,43 @@ function ChecklistRow({
               <span className="text-xs font-mono text-gray-400">{checklist.version}</span>
             </div>
           </div>
-
-          {/* 3-dot menu */}
-          <div className="relative shrink-0">
-            <button
-              type="button"
-              onClick={onToggleMenu}
-              className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
-            >
-              <MoreVertical className="w-4 h-4" />
-            </button>
-            {menuOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={onCloseMenu} />
-                <div className="absolute right-0 top-8 z-20 w-44 bg-white rounded-xl shadow-lg border border-gray-100 py-1 overflow-hidden">
-                  <MenuAction icon={<FileEdit className="w-4 h-4" />} label="Edit" onClick={onCloseMenu} />
-                  <MenuAction icon={<Copy className="w-4 h-4" />} label="Use as Template" onClick={onCloseMenu} />
-                  <div className="my-1 border-t border-gray-100" />
-                  <MenuAction
-                    icon={<Trash2 className="w-4 h-4" />}
-                    label="Delete"
-                    danger
-                    onClick={() => { onCloseMenu(); onDeleteRequest(); }}
-                  />
-                </div>
-              </>
-            )}
-          </div>
         </div>
 
-        <p className="text-xs text-gray-400 mb-2 line-clamp-1">{checklist.description}</p>
+        {/* Description + meta */}
+        <p className="text-xs text-gray-400 mb-3 line-clamp-1">{checklist.description}</p>
+        <div className="flex items-center gap-2 text-xs text-gray-400 mb-3">
+          <Clock className="w-3 h-3" />
+          <span>{checklist.updatedAt}</span>
+          <span>·</span>
+          <Tag className="w-3 h-3" />
+          <span>{checklist.fieldsCount} fields</span>
+        </div>
 
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs text-gray-400">
-            <Clock className="w-3 h-3" />
-            {checklist.updatedAt}
-            <span>·</span>
-            <Tag className="w-3 h-3" />
-            {checklist.fieldsCount} fields
-          </div>
-
-          {/* Inline action buttons (mobile) */}
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <FileEdit className="w-3 h-3" />
-              Edit
-            </button>
-            <button
-              type="button"
-              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-[#2abaad] bg-teal-50 border border-teal-200 rounded-lg hover:bg-teal-100 transition-colors"
-            >
-              <Copy className="w-3 h-3" />
-              Template
-            </button>
-          </div>
+        {/* Action buttons — always visible */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            <FileEdit className="w-3.5 h-3.5" />
+            Edit
+          </button>
+          <button
+            type="button"
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-[#2abaad] bg-teal-50 border border-teal-200 rounded-lg hover:bg-teal-100 transition-colors"
+          >
+            <Copy className="w-3.5 h-3.5" />
+            Use as Template
+          </button>
+          <button
+            type="button"
+            onClick={onDeleteRequest}
+            className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-red-500 bg-white border border-gray-200 rounded-lg hover:bg-red-50 hover:border-red-200 transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
-
-    </div>
+    </>
   );
 }
-
-/* ─────────────── Drop-down menu action ─────────────── */
-
-function MenuAction({
-  icon,
-  label,
-  danger,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  danger?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex items-center gap-2.5 w-full px-4 py-2 text-sm transition-colors ${
-        danger
-          ? "text-red-600 hover:bg-red-50"
-          : "text-gray-700 hover:bg-gray-50"
-      }`}
-    >
-      {icon}
-      {label}
-    </button>
-  );
-}
-
-/* Needed so Tailwind picks up line-clamp utility */
-// line-clamp-1
