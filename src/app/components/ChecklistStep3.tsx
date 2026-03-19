@@ -386,7 +386,7 @@ export function ChecklistStep3({ onBack, onPublish, onOpenNav, canvasFields, met
 
   // ─── MOBILE LAYOUT ───────────────────────────────────────────────
   const mobileLayout = (
-    <div className="sm:hidden flex flex-col min-h-screen bg-gray-50">
+    <div className="sm:hidden flex flex-col h-screen overflow-hidden bg-gray-50">
 
       {/* Sticky header */}
       <header className="sticky top-0 z-30 bg-white border-b border-gray-100 shadow-sm shrink-0">

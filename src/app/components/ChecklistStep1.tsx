@@ -1,10 +1,13 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Calendar,
   Copy,
   ChevronRight,
   ChevronLeft,
   Menu,
+  ChevronDown,
+  Check,
+  Plus,
   X,
   CheckCircle2,
   MapPin,
@@ -33,6 +36,8 @@ import {
 import { AssignToModal, formatAssignToLabel } from "./AssignToModal";
 import { LocationModal, formatLocationLabel } from "./LocationModal";
 import type { LocationSelection } from "./LocationModal";
+import { fetchCategories, fetchManagers, createCategory, createPlantUser, type Category, type PlantUser } from "../services/dbService";
+import { MigrationSetup } from "./MigrationSetup";
 
 type Frequency = "ONE_OFF" | "PERMANENT" | "RECURRING";
 type Interval = "Day" | "Week" | "Month" | "Year";
@@ -148,6 +153,59 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
   const showRetentionCard = responseMode !== "KEEP_LAST";
   const showKeepLastToggle = responseMode !== "RETAIN_ALL";
 
+  // ── Category & Manager data from DB ──────────────────────────────────────────
+  const [categories, setCategories]           = useState<Category[]>([]);
+  const [managers, setManagers]               = useState<PlantUser[]>([]);
+  const [dbReady, setDbReady]                 = useState(false);
+  const [catOpen, setCatOpen]                 = useState(false);
+  const [managerOpen, setManagerOpen]         = useState(false);
+  const [catSearch, setCatSearch]             = useState("");
+  const [managerSearch, setManagerSearch]     = useState("");
+  const [addingCat, setAddingCat]             = useState(false);
+  const [newCatName, setNewCatName]           = useState("");
+  const [addingManager, setAddingManager]     = useState(false);
+  const [newManagerName, setNewManagerName]   = useState("");
+  const [newManagerEmail, setNewManagerEmail] = useState("");
+  const [showMigrationBanner, setShowMigrationBanner] = useState(false);
+
+  useEffect(() => {
+    Promise.all([fetchCategories(), fetchManagers()]).then(([catResult, manResult]) => {
+      setCategories(catResult.categories);
+      setManagers(manResult.users);
+      setDbReady(catResult.fromDB);
+      if (!catResult.fromDB) setShowMigrationBanner(true);
+    });
+  }, []);
+
+  const handleAddCategory = async () => {
+    if (!newCatName.trim()) return;
+    const created = await createCategory(newCatName.trim());
+    if (created) {
+      setCategories((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
+      setCategory(created.name);
+    } else {
+      // DB not ready — just use the typed value
+      setCategory(newCatName.trim());
+    }
+    setNewCatName(""); setAddingCat(false); setCatOpen(false);
+  };
+
+  const handleAddManager = async () => {
+    if (!newManagerName.trim()) return;
+    const created = await createPlantUser(newManagerName.trim(), newManagerEmail.trim() || undefined, "manager");
+    const displayName = newManagerName.trim();
+    if (created) {
+      setManagers((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
+      setManagerName(created.name);
+    } else {
+      setManagerName(displayName);
+    }
+    setNewManagerName(""); setNewManagerEmail(""); setAddingManager(false); setManagerOpen(false);
+  };
+
+  const filteredCats     = categories.filter(c => catSearch === "" || c.name.toLowerCase().includes(catSearch.toLowerCase()));
+  const filteredManagers = managers.filter(m => managerSearch === "" || m.name.toLowerCase().includes(managerSearch.toLowerCase()));
+
   const inputClass =
     "w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-800 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-[#2abaad]/30 focus:border-[#2abaad] transition-all duration-150";
 
@@ -171,8 +229,8 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
     "w-full px-4 py-3.5 bg-white border border-gray-200 rounded-2xl text-base text-gray-800 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-[#2abaad]/30 focus:border-[#2abaad] transition-all";
 
   const MobileSection = ({ title: sTitle, children }: { title: string; children: React.ReactNode }) => (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-50">
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+      <div className="px-4 py-3 border-b border-gray-50 rounded-t-2xl">
         <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">{sTitle}</h2>
       </div>
       <div className="px-4 py-4 flex flex-col gap-4">{children}</div>
@@ -180,7 +238,7 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
   );
 
   const mobileLayout = (
-    <div className="sm:hidden flex flex-col min-h-screen bg-gray-50">
+    <div className="sm:hidden flex flex-col h-screen overflow-hidden bg-gray-50">
       {/* ── Sticky header ── */}
       <header className="sticky top-0 z-30 bg-white border-b border-gray-100 shadow-sm">
         <div className="flex items-center justify-between px-4 py-3">
@@ -227,6 +285,11 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
       <div className="flex-1 overflow-y-auto px-4 py-4 pb-32 space-y-4"
         style={{ WebkitOverflowScrolling: "touch" }}>
 
+        {/* Migration banner */}
+        {showMigrationBanner && (
+          <MigrationSetup onDismiss={() => setShowMigrationBanner(false)} />
+        )}
+
         {/* Section 1 — Submission settings */}
         <MobileSection title="Submission settings">
           {/* Validation toggle */}
@@ -258,12 +321,33 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
               <label className="flex items-center gap-1.5 text-xs text-[#2abaad] uppercase tracking-wide mb-2">
                 <UserCheck className="w-3.5 h-3.5" /> Send to manager *
               </label>
-              <input
-                type="text"
+              <MobileDropdown
                 value={managerName}
-                onChange={(e) => setManagerName(e.target.value)}
-                placeholder="Search manager by name…"
-                className={mobileInputClass}
+                placeholder="Select a manager"
+                open={managerOpen}
+                onToggle={() => { setManagerOpen(!managerOpen); setCatOpen(false); }}
+                onClose={() => setManagerOpen(false)}
+                search={managerSearch}
+                onSearch={setManagerSearch}
+                items={filteredManagers.map(m => ({ id: m.id, label: m.name, sublabel: m.email ?? undefined }))}
+                onSelect={(item) => { setManagerName(item.label); setManagerOpen(false); setManagerSearch(""); }}
+                onAddNew={() => setAddingManager(true)}
+                addingNew={addingManager}
+                newName={newManagerName}
+                onNewNameChange={setNewManagerName}
+                onConfirmNew={handleAddManager}
+                onCancelNew={() => { setAddingManager(false); setNewManagerName(""); setNewManagerEmail(""); }}
+                dbReady={dbReady}
+                extraNewFields={
+                  <input
+                    type="email"
+                    inputMode="email"
+                    value={newManagerEmail}
+                    onChange={(e) => setNewManagerEmail(e.target.value)}
+                    placeholder="Email (optional)"
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#2abaad]/30 focus:border-[#2abaad]"
+                  />
+                }
               />
             </div>
           )}
@@ -329,6 +413,10 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
             </label>
             <input
               type="text"
+              inputMode="text"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="sentences"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Monthly Safety Inspection"
@@ -339,12 +427,23 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
             <label className="flex items-center gap-1.5 text-xs text-gray-400 uppercase tracking-wide mb-2">
               <Tag className="w-3.5 h-3.5" /> Category *
             </label>
-            <input
-              type="text"
+            <MobileDropdown
               value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              placeholder="Select or type a category"
-              className={mobileInputClass}
+              placeholder="Select a category"
+              open={catOpen}
+              onToggle={() => { setCatOpen(!catOpen); setManagerOpen(false); }}
+              onClose={() => setCatOpen(false)}
+              search={catSearch}
+              onSearch={setCatSearch}
+              items={filteredCats.map(c => ({ id: c.id, label: c.name, color: c.color }))}
+              onSelect={(item) => { setCategory(item.label); setCatOpen(false); setCatSearch(""); }}
+              onAddNew={() => setAddingCat(true)}
+              addingNew={addingCat}
+              newName={newCatName}
+              onNewNameChange={setNewCatName}
+              onConfirmNew={handleAddCategory}
+              onCancelNew={() => { setAddingCat(false); setNewCatName(""); }}
+              dbReady={dbReady}
             />
           </div>
         </MobileSection>
@@ -783,12 +882,29 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
                       <UserCheck className="w-3.5 h-3.5 text-[#2abaad]" />
                       <label className="text-xs tracking-wide text-[#2abaad] uppercase">Send to manager for validation <span className="text-[#2abaad]">*</span></label>
                     </div>
-                    <input
-                      type="text"
+                    <DesktopDropdown
                       value={managerName}
-                      onChange={(e) => setManagerName(e.target.value)}
-                      placeholder="Search manager by name…"
-                      className="w-full px-3.5 py-2.5 bg-white border-2 border-[#2abaad]/30 rounded-xl text-sm text-gray-800 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-[#2abaad]/20 focus:border-[#2abaad] transition-all duration-150"
+                      placeholder="Select a manager…"
+                      open={managerOpen}
+                      onToggle={() => { setManagerOpen(!managerOpen); setCatOpen(false); }}
+                      onClose={() => setManagerOpen(false)}
+                      search={managerSearch}
+                      onSearch={setManagerSearch}
+                      items={filteredManagers.map(m => ({ id: m.id, label: m.name, sublabel: m.email ?? undefined }))}
+                      onSelect={(item) => { setManagerName(item.label); setManagerOpen(false); setManagerSearch(""); }}
+                      onAddNew={() => setAddingManager(true)}
+                      addingNew={addingManager}
+                      newName={newManagerName}
+                      onNewNameChange={setNewManagerName}
+                      onConfirmNew={handleAddManager}
+                      onCancelNew={() => { setAddingManager(false); setNewManagerName(""); setNewManagerEmail(""); }}
+                      dbReady={dbReady}
+                      extraNewFields={
+                        <input type="email" inputMode="email" value={newManagerEmail}
+                          onChange={(e) => setNewManagerEmail(e.target.value)}
+                          placeholder="Email (optional)"
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#2abaad]/30 focus:border-[#2abaad]" />
+                      }
                     />
                   </div>
                 )}
@@ -803,7 +919,24 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
 
               {/* Category */}
               <FormField label="Checklist Category" required icon={<Tag className="w-3.5 h-3.5" />}>
-                <input type="text" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Select or type a category" className={inputClass} />
+                <DesktopDropdown
+                  value={category}
+                  placeholder="Select a category…"
+                  open={catOpen}
+                  onToggle={() => { setCatOpen(!catOpen); setManagerOpen(false); }}
+                  onClose={() => setCatOpen(false)}
+                  search={catSearch}
+                  onSearch={setCatSearch}
+                  items={filteredCats.map(c => ({ id: c.id, label: c.name, color: c.color }))}
+                  onSelect={(item) => { setCategory(item.label); setCatOpen(false); setCatSearch(""); }}
+                  onAddNew={() => setAddingCat(true)}
+                  addingNew={addingCat}
+                  newName={newCatName}
+                  onNewNameChange={setNewCatName}
+                  onConfirmNew={handleAddCategory}
+                  onCancelNew={() => { setAddingCat(false); setNewCatName(""); }}
+                  dbReady={dbReady}
+                />
               </FormField>
 
               {/* Priority */}
@@ -1024,5 +1157,144 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
       {mobileLayout}
       {desktopLayout}
     </>
+  );
+}
+
+/* ─────────────── Shared dropdown types ─────────────── */
+
+interface DropdownItem { id: string; label: string; sublabel?: string; color?: string; }
+
+interface DropdownProps {
+  value: string;
+  placeholder: string;
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  search: string;
+  onSearch: (v: string) => void;
+  items: DropdownItem[];
+  onSelect: (item: DropdownItem) => void;
+  onAddNew: () => void;
+  addingNew: boolean;
+  newName: string;
+  onNewNameChange: (v: string) => void;
+  onConfirmNew: () => void;
+  onCancelNew: () => void;
+  dbReady: boolean;
+  extraNewFields?: React.ReactNode;
+}
+
+/* ── Mobile dropdown ── */
+function MobileDropdown(p: DropdownProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  return (
+    <div className="relative">
+      <button type="button" onClick={p.onToggle}
+        className="w-full flex items-center justify-between px-4 py-3.5 bg-white border border-gray-200 rounded-2xl text-sm transition-all focus:outline-none"
+        style={{ color: p.value ? "#1f2937" : "#9ca3af" }}>
+        <span className="truncate">{p.value || p.placeholder}</span>
+        <ChevronDown className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${p.open ? "rotate-180" : ""}`} />
+      </button>
+
+      {p.open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={p.onClose} />
+          <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden max-h-56">
+            <div className="p-3 border-b border-gray-50">
+              <input ref={inputRef} autoFocus type="text" inputMode="text" value={p.search} onChange={e => p.onSearch(e.target.value)}
+                placeholder="Search…" className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#2abaad]/30" />
+            </div>
+            <div className="overflow-y-auto max-h-40">
+              {p.items.length === 0 && !p.addingNew && (
+                <p className="px-4 py-3 text-sm text-gray-400 text-center">No results</p>
+              )}
+              {p.items.map(item => (
+                <button key={item.id} type="button" onClick={() => p.onSelect(item)}
+                  className="flex items-center gap-3 w-full px-4 py-3 text-sm hover:bg-gray-50 transition-colors text-left">
+                  {item.color && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: item.color }} />}
+                  <span className="flex-1 truncate">{item.label}</span>
+                  {item.sublabel && <span className="text-xs text-gray-400 truncate">{item.sublabel}</span>}
+                  {p.value === item.label && <Check className="w-3.5 h-3.5 text-[#2abaad] shrink-0" />}
+                </button>
+              ))}
+            </div>
+            {p.addingNew ? (
+              <div className="p-3 border-t border-gray-50 flex flex-col gap-2">
+                <input autoFocus type="text" inputMode="text" value={p.newName} onChange={e => p.onNewNameChange(e.target.value)}
+                  placeholder="Name…" className="w-full px-3 py-2 text-sm border border-[#2abaad] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#2abaad]/30" />
+                {p.extraNewFields}
+                <div className="flex gap-2">
+                  <button type="button" onClick={p.onCancelNew} className="flex-1 py-2 text-xs text-gray-500 bg-gray-100 rounded-xl">Cancel</button>
+                  <button type="button" onClick={p.onConfirmNew} className="flex-1 py-2 text-xs text-white bg-[#2abaad] rounded-xl">Add</button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" onClick={p.onAddNew}
+                className="flex items-center gap-2 w-full px-4 py-3 text-sm text-[#2abaad] border-t border-gray-50 hover:bg-teal-50 transition-colors">
+                <Plus className="w-4 h-4" />
+                {p.dbReady ? "Add new…" : "Type custom value…"}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ── Desktop dropdown ── */
+function DesktopDropdown(p: DropdownProps) {
+  return (
+    <div className="relative">
+      <button type="button" onClick={p.onToggle}
+        className="w-full flex items-center justify-between px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-sm hover:border-gray-300 transition-all focus:outline-none focus:ring-2 focus:ring-[#2abaad]/30 focus:border-[#2abaad]"
+        style={{ color: p.value ? "#1f2937" : "#9ca3af" }}>
+        <span className="truncate">{p.value || p.placeholder}</span>
+        <ChevronDown className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${p.open ? "rotate-180" : ""}`} />
+      </button>
+
+      {p.open && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={p.onClose} />
+          <div className="absolute left-0 right-0 top-full mt-1 z-40 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden max-h-60">
+            <div className="p-2.5 border-b border-gray-50">
+              <input autoFocus type="text" value={p.search} onChange={e => p.onSearch(e.target.value)}
+                placeholder="Search…" className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2abaad]/20" />
+            </div>
+            <div className="overflow-y-auto max-h-40">
+              {p.items.length === 0 && !p.addingNew && (
+                <p className="px-3 py-2 text-sm text-gray-400 text-center">No results</p>
+              )}
+              {p.items.map(item => (
+                <button key={item.id} type="button" onClick={() => p.onSelect(item)}
+                  className="flex items-center gap-2.5 w-full px-3 py-2.5 text-sm hover:bg-gray-50 transition-colors text-left">
+                  {item.color && <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: item.color }} />}
+                  <span className="flex-1 truncate">{item.label}</span>
+                  {item.sublabel && <span className="text-xs text-gray-400 truncate max-w-[120px]">{item.sublabel}</span>}
+                  {p.value === item.label && <Check className="w-3.5 h-3.5 text-[#2abaad] shrink-0" />}
+                </button>
+              ))}
+            </div>
+            {p.addingNew ? (
+              <div className="p-2.5 border-t border-gray-50 flex flex-col gap-2">
+                <input autoFocus type="text" value={p.newName} onChange={e => p.onNewNameChange(e.target.value)}
+                  placeholder="Name…" className="w-full px-3 py-1.5 text-sm border border-[#2abaad] rounded-lg focus:outline-none" />
+                {p.extraNewFields}
+                <div className="flex gap-2">
+                  <button type="button" onClick={p.onCancelNew} className="flex-1 py-1.5 text-xs text-gray-500 bg-gray-100 rounded-lg">Cancel</button>
+                  <button type="button" onClick={p.onConfirmNew} className="flex-1 py-1.5 text-xs text-white bg-[#2abaad] rounded-lg">Add</button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" onClick={p.onAddNew}
+                className="flex items-center gap-2 w-full px-3 py-2.5 text-sm text-[#2abaad] border-t border-gray-50 hover:bg-teal-50 transition-colors">
+                <Plus className="w-3.5 h-3.5" />
+                {p.dbReady ? "Add new…" : "Type custom value…"}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
