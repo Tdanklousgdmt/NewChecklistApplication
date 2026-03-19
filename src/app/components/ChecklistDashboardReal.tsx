@@ -38,13 +38,16 @@ export function ChecklistDashboardReal({
   onValidateSubmission,
 }: ChecklistDashboardProps) {
   const [loading, setLoading] = useState(true);
+  const [refreshingValidations, setRefreshingValidations] = useState(false);
   const [activeChecklists, setActiveChecklists] = useState<any[]>([]);
   const [draftChecklists, setDraftChecklists] = useState<any[]>([]);
   const [assignments, setAssignments] = useState<any[]>([]);
   const [pendingSubmissions, setPendingSubmissions] = useState<any[]>([]);
   const [draftSubmissions, setDraftSubmissions] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<"my-tasks" | "all-checklists" | "drafts" | "validations" | "in-progress">("my-tasks");
+  const [activeTab, setActiveTab] = useState<"my-tasks" | "all-checklists" | "drafts" | "validations" | "in-progress">(
+    role === "manager" ? "validations" : "my-tasks"
+  );
 
   // View toggle state
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
@@ -72,6 +75,20 @@ export function ChecklistDashboardReal({
   useEffect(() => {
     loadDashboardData();
   }, []);
+
+  const refreshPendingValidations = async () => {
+    if (role !== "manager") return;
+
+    setRefreshingValidations(true);
+    try {
+      const submissions = await checklistService.getSubmissions(undefined, "submitted");
+      setPendingSubmissions(submissions);
+    } catch (error) {
+      console.error("Error refreshing validation submissions:", error);
+    } finally {
+      setRefreshingValidations(false);
+    }
+  };
 
   const loadDashboardData = async () => {
     setLoading(true);
@@ -525,6 +542,24 @@ export function ChecklistDashboardReal({
                 {/* Pending Validations (Manager) */}
                 {activeTab === "validations" && (
                   <div className="space-y-3">
+                    <div className="flex items-center justify-between pb-1">
+                      <p className="text-xs text-gray-500">
+                        Use refresh after a submission to confirm it appears here.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={refreshPendingValidations}
+                        disabled={refreshingValidations}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {refreshingValidations ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        )}
+                        Refresh
+                      </button>
+                    </div>
                     {pendingSubmissions.length === 0 ? (
                       <EmptyState icon={<CheckCircle2 className="w-12 h-12 text-gray-300" />} title="No pending validations" subtitle="All submissions have been reviewed" />
                     ) : (
