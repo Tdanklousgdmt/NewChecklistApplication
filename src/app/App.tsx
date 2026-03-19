@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { ChecklistDashboardReal } from "./components/ChecklistDashboardReal";
+import { ChecklistLibraryDesign } from "./components/ChecklistLibraryDesign";
 import { RoleSelection } from "./components/RoleSelection";
 import { ChecklistCreator } from "./components/ChecklistCreator";
 import { ChecklistExecution } from "./components/ChecklistExecution";
@@ -8,7 +9,7 @@ import { Toaster } from "sonner";
 
 export default function App() {
   const [role, setRole] = useState<"user" | "manager" | null>(null);
-  const [view, setView] = useState<"dashboard" | "create" | "execute" | "validate" | "view">("dashboard");
+  const [view, setView] = useState<"dashboard" | "create" | "execute" | "validate" | "view" | "library">("dashboard");
 
   // Navigation state
   const [activeChecklistId, setActiveChecklistId] = useState<string | null>(null);
@@ -104,6 +105,19 @@ export default function App() {
     );
   }
 
+  // Library design preview
+  if (view === "library") {
+    return (
+      <>
+        <ChecklistLibraryDesign
+          onCreateNew={() => setView("create")}
+          onBack={() => setView("dashboard")}
+        />
+        <Toaster position="top-right" richColors />
+      </>
+    );
+  }
+
   // Dashboard view
   return (
     <>
@@ -123,6 +137,7 @@ export default function App() {
           setActiveSubmissionId(submissionId);
           setView("validate");
         }}
+        onOpenLibrary={() => setView("library")}
       />
       <Toaster position="top-right" richColors />
     </>

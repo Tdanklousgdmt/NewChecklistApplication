@@ -28,6 +28,7 @@ interface ChecklistDashboardProps {
   onExecuteChecklist?: (checklistId: string, assignmentId?: string) => void;
   onViewChecklist?: (checklistId: string) => void;
   onValidateSubmission?: (submissionId: string) => void;
+  onOpenLibrary?: () => void;
 }
 
 export function ChecklistDashboardReal({
@@ -36,6 +37,7 @@ export function ChecklistDashboardReal({
   onExecuteChecklist,
   onViewChecklist,
   onValidateSubmission,
+  onOpenLibrary,
 }: ChecklistDashboardProps) {
   const [loading, setLoading] = useState(true);
   const [refreshingValidations, setRefreshingValidations] = useState(false);
@@ -190,6 +192,16 @@ export function ChecklistDashboardReal({
               <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
             )}
           </button>
+          {onOpenLibrary && (
+            <button
+              type="button"
+              onClick={onOpenLibrary}
+              className="flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl text-xs tracking-wide hover:bg-gray-50 transition-colors"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Library</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={onCreateNew}
