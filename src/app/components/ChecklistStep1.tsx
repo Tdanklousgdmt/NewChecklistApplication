@@ -37,7 +37,6 @@ import { AssignToModal, formatAssignToLabel } from "./AssignToModal";
 import { LocationModal, formatLocationLabel } from "./LocationModal";
 import type { LocationSelection } from "./LocationModal";
 import { fetchCategories, fetchManagers, createCategory, createPlantUser, type Category, type PlantUser } from "../services/dbService";
-import { MigrationSetup } from "./MigrationSetup";
 
 type Frequency = "ONE_OFF" | "PERMANENT" | "RECURRING";
 type Interval = "Day" | "Week" | "Month" | "Year";
@@ -166,14 +165,12 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
   const [addingManager, setAddingManager]     = useState(false);
   const [newManagerName, setNewManagerName]   = useState("");
   const [newManagerEmail, setNewManagerEmail] = useState("");
-  const [showMigrationBanner, setShowMigrationBanner] = useState(false);
 
   useEffect(() => {
     Promise.all([fetchCategories(), fetchManagers()]).then(([catResult, manResult]) => {
       setCategories(catResult.categories);
       setManagers(manResult.users);
       setDbReady(catResult.fromDB);
-      if (!catResult.fromDB) setShowMigrationBanner(true);
     });
   }, []);
 
@@ -284,11 +281,6 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
       {/* ── Scrollable body ── */}
       <div className="flex-1 overflow-y-auto px-4 py-4 pb-32 space-y-4"
         style={{ WebkitOverflowScrolling: "touch" }}>
-
-        {/* Migration banner */}
-        {showMigrationBanner && (
-          <MigrationSetup onDismiss={() => setShowMigrationBanner(false)} />
-        )}
 
         {/* Section 1 — Submission settings */}
         <MobileSection title="Submission settings">
