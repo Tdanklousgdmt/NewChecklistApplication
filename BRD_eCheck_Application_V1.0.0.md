@@ -123,6 +123,15 @@ The design system is based on a set of CSS custom properties defining both a lig
 
 ---
 
+#### E1.US1 – Role Selection Screen
+
+When a user opens eCheck for the first time (or after clearing their session), they are presented with a role selection screen to choose their access level before entering the application.
+
+![Role Selection Screen](docs/screenshots/01_role_selection.png)
+*Figure 1 – Role selection screen: User/Operator and Manager entry points*
+
+---
+
 #### E1.US2 – User Roles
 
 The application defines two primary roles with different levels of access and responsibilities:
@@ -228,10 +237,38 @@ When an Operator opens the side navigation menu, the following items are display
 
 The Dashboard is the main homepage of the eCheck application. It presents a clean, structured interface designed for quick visibility of checklist status and operational health.
 
+**Manager Dashboard – All Checklists View**
+
+![Manager Dashboard – All](docs/screenshots/02_dashboard_manager_all.png)
+*Figure 2 – Manager dashboard: all checklists overview with KPI summary and checklist tiles*
+
+**Manager Dashboard – Pending Validations Tab**
+
+![Manager Dashboard – Validations](docs/screenshots/03_dashboard_manager_validations.png)
+*Figure 3 – Manager dashboard: submissions awaiting review (Validations tab)*
+
+**Manager Dashboard – Drafts Tab**
+
+![Manager Dashboard – Drafts](docs/screenshots/04_dashboard_manager_drafts.png)
+*Figure 4 – Manager dashboard: unpublished draft checklists (Drafts tab)*
+
+**Manager Dashboard – In Progress Tab**
+
+![Manager Dashboard – In Progress](docs/screenshots/05_dashboard_manager_inprogress.png)
+*Figure 5 – Manager dashboard: checklists currently being executed (In Progress tab)*
+
 **Manager View – Tabs:**
 - **Pending Validations**: All submissions awaiting manager review.
 - **All Checklists**: All active, published checklists.
 - **Drafts**: Checklists in draft state not yet published.
+
+**Operator Dashboard**
+
+![Operator Dashboard](docs/screenshots/09_dashboard_operator.png)
+*Figure 8 – Operator dashboard: personal task list with pending and in-progress assignments*
+
+![Operator Dashboard – Drafts](docs/screenshots/10_dashboard_operator_drafts.png)
+*Figure 9 – Operator dashboard: submission drafts in progress*
 
 **Operator View – Tabs:**
 - **My Tasks**: Pending assignments for the current user.
@@ -260,6 +297,9 @@ Each checklist entry is displayed as a tile with the following information:
 
 At the top of the dashboard, a sticky filter bar provides the following filtering options:
 
+![Dashboard Filters Panel](docs/screenshots/07_dashboard_filters.png)
+*Figure 6 – Dashboard filter panel: multi-criteria filtering for checklists*
+
 - **Status**: Draft, Assigned, In Progress, Overdue/Expired, Completed.
 - **Frequency**: Permanent, One-off, Recurring.
 - **Team**: Filter by assigned team.
@@ -277,6 +317,9 @@ Active filters are displayed as removable chips below the filter bar. All tiles 
 #### E2.US3 – Calendar View
 
 As an alternative to the tile/list view, users can switch to a **Calendar View** that displays checklists by their scheduled date.
+
+![Calendar View](docs/screenshots/06_dashboard_calendar.png)
+*Figure 7 – Calendar view: monthly calendar showing checklists by their scheduled date*
 
 - The calendar supports a **monthly view** by default.
 - Each day cell shows the checklists valid or due on that date.
@@ -329,6 +372,12 @@ Users can navigate between steps freely. Progress is continuously autosaved so n
 
 As a manager, I need to configure all general settings for a checklist before designing its content.
 
+![Creation Step 1 – Top](docs/screenshots/11_create_step1_top.png)
+*Figure 10 – Checklist creation Step 1: title, category, and priority configuration*
+
+![Creation Step 1 – Bottom](docs/screenshots/11b_create_step1_bottom.png)
+*Figure 11 – Checklist creation Step 1 (continued): frequency, assignment, location, and validation settings*
+
 **Acceptance Criteria:**
 
 - **Title**:
@@ -377,6 +426,12 @@ As a manager, I need to configure all general settings for a checklist before de
 #### E3.US3 – Step 2: Field Builder (Drag & Drop)
 
 As a manager, I want to design the content of a checklist by dragging field components from a palette onto a canvas organized in sections.
+
+![Creation Step 2 – Field Builder](docs/screenshots/12_create_step2_top.png)
+*Figure 12 – Step 2 field builder: canvas area with drag-and-drop sections and fields*
+
+![Creation Step 2 – Component Palette](docs/screenshots/12b_create_step2_palette.png)
+*Figure 13 – Step 2 component palette: Basic Fields, Date & Time, Media & Evidence, Structure, and Advanced field types*
 
 **Acceptance Criteria:**
 
@@ -519,6 +574,9 @@ A field can have multiple triggers. Triggers are evaluated in real time during c
 
 As a manager, I want to review the complete checklist before making it available to operators.
 
+![Creation Step 3 – Preview](docs/screenshots/13_create_step3_preview.png)
+*Figure 14 – Step 3: full read-only preview of the checklist with metadata summary and publish options*
+
 **Acceptance Criteria:**
 
 - Displays a full read-only preview of all sections and fields with their labels, help text, and configuration (required markers, threshold colors, etc.).
@@ -591,6 +649,15 @@ As a manager, I want to be alerted if a checklist I am creating is a duplicate o
 #### E4.US1 – Execution Workflow
 
 As an operator, I want to open and fill out a checklist assigned to me in a clear, step-by-step manner.
+
+![Execution Screen – Top](docs/screenshots/16_execution_top.png)
+*Figure 15 – Checklist execution screen: section navigation and progress indicator*
+
+![Execution Screen – Fields](docs/screenshots/16b_execution_mid.png)
+*Figure 16 – Checklist execution: interactive field rendering with real-time scoring*
+
+![Execution Screen – Advanced Fields](docs/screenshots/16c_execution_fields.png)
+*Figure 17 – Checklist execution: media fields, signature capture, and trigger-based interactions*
 
 **Acceptance Criteria:**
 
@@ -728,6 +795,15 @@ As an operator, I want to submit a completed checklist so that it is recorded an
 #### E5.US1 – Validation Screen
 
 As a manager, I want a dedicated screen to review the content of a submitted checklist before approving or rejecting it.
+
+![Validation Screen – Top](docs/screenshots/08_validation_screen_top.png)
+*Figure 18 – Validation screen: submission overview with metadata and operator answers*
+
+![Validation Screen – Middle](docs/screenshots/08b_validation_screen_mid.png)
+*Figure 19 – Validation screen: detailed field answers with scores and flag indicators*
+
+![Validation Screen – Bottom](docs/screenshots/08c_validation_screen_bottom.png)
+*Figure 20 – Validation screen: approve/reject buttons with mandatory comment field*
 
 **Acceptance Criteria:**
 
@@ -1188,6 +1264,29 @@ As a manager, I want to export any report so that I can use the data outside the
   - **PDF**: Formatted report with charts (as images), tables, active filter context, and report generation timestamp.
 - The export reflects the currently active filters — only the data visible in the report is included.
 - The exported file is named using the format: `eCheck_Report_[ReportType]_[YYYYMMDD].xlsx`.
+
+---
+
+## APPENDIX A – MOBILE INTERFACE
+
+eCheck is designed to be fully responsive and usable on mobile devices (smartphones and tablets). Operators on the factory floor primarily use the application on handheld devices to fill out checklists, declare tags, and submit evidence directly from the work area.
+
+### Mobile – Operator View
+
+![Mobile Operator Dashboard](docs/screenshots/14_mobile_operator.png)
+*Figure 21 – Mobile operator dashboard: task list optimized for touch interaction on a 390px screen*
+
+### Mobile – Manager View
+
+![Mobile Manager Dashboard](docs/screenshots/15_mobile_manager.png)
+*Figure 22 – Mobile manager dashboard: checklist management and validation access from a mobile device*
+
+**Mobile Design Principles:**
+- All interactive elements (buttons, inputs, dropdowns) are sized for touch (minimum 44×44px tap targets).
+- Section navigation in the execution screen uses full-width buttons for easy tapping.
+- Media capture (photo, video) uses the native device camera.
+- The signature field uses finger-draw on a full-width canvas.
+- The filter bar collapses into a drawer on small screens.
 
 ---
 
