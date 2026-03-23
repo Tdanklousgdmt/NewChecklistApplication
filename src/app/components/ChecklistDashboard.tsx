@@ -50,7 +50,7 @@ interface ChecklistInstance {
 interface ChecklistDashboardProps {
   role: "user" | "manager";
   onCreateNew: () => void;
-  onExecuteChecklist?: (checklistId: string, assignmentId?: string) => void;
+  onExecuteChecklist?: (checklistId: string, assignmentId?: string, redoSubmissionId?: string) => void;
   onValidateSubmission?: (submissionId: string) => void;
 }
 

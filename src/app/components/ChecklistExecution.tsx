@@ -6,7 +6,7 @@ import {
   ScanLine, Calculator, ChevronDown, ChevronUp, X, Check,
   Video, RefreshCw, Navigation, Info, Heading1, Trash2, ZoomIn,
   Save, Clock, RotateCcw, BookOpen, Download, Play, Image, Film,
-  Maximize2, Tag, Zap, XCircle,
+  Maximize2, Tag, Zap, XCircle, MessageSquare,
 } from "lucide-react";
 import { checklistService } from "../services/checklistService";
 import { toast } from "sonner";
@@ -20,6 +20,8 @@ import { Trigger, TriggerImpact } from "../types/triggers";
 interface ChecklistExecutionProps {
   checklistId: string;
   assignmentId?: string;
+  /** When opening from a notification or explicit redo, load this rejected submission for answers + manager comment. */
+  redoFromSubmissionId?: string;
   onBack: () => void;
   onSubmitted?: () => void;
   onOpenNav?: () => void;
@@ -671,7 +673,7 @@ function SectionExecution({ field, renderField }: { field: any; renderField: (f:
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export function ChecklistExecution({ checklistId, assignmentId, onBack, onSubmitted, onOpenNav }: ChecklistExecutionProps) {
+export function ChecklistExecution({ checklistId, assignmentId, redoFromSubmissionId, onBack, onSubmitted, onOpenNav }: ChecklistExecutionProps) {
   const [loading, setLoading]       = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [checklist, setChecklist]   = useState<any>(null);
@@ -687,6 +689,8 @@ export function ChecklistExecution({ checklistId, assignmentId, onBack, onSubmit
   const [draftRestored, setDraftRestored] = useState(false);
   const [showDraftBanner, setShowDraftBanner] = useState(false);
   const [pendingDraft, setPendingDraft] = useState<any>(null); // draft found but not yet restored
+  /** Manager rejection feedback shown while redoing a returned checklist. */
+  const [managerFeedback, setManagerFeedback] = useState<string | null>(null);
 
   // ── Tag state ────────────────────────────────────────────────────────────────
   const [showTagModal, setShowTagModal]                   = useState(false);
@@ -714,7 +718,7 @@ export function ChecklistExecution({ checklistId, assignmentId, onBack, onSubmit
   // Track previously-firing trigger IDs per field (to avoid re-firing one-time impacts)
   const prevFiredRef = useRef<Record<string, Set<string>>>({});
 
-  useEffect(() => { loadChecklist(); }, [checklistId]);
+  useEffect(() => { loadChecklist(); }, [checklistId, assignmentId, redoFromSubmissionId]);
 
   const loadChecklist = async () => {
     try {
@@ -744,14 +748,40 @@ export function ChecklistExecution({ checklistId, assignmentId, onBack, onSubmit
           if (f.typeId === "time"     && f.defaultToNow) defaults[f.uid] = { value: new Date().toTimeString().slice(0, 5) };
         }
 
-        if (existingDraft && Array.isArray(existingDraft.answers) && existingDraft.answers.length > 0) {
-          // A saved draft exists — show restore banner
+        let redoSub: any = null;
+        if (redoFromSubmissionId) {
+          const s = await checklistService.getSubmission(redoFromSubmissionId);
+          if (s?.status === "rejected" && s.checklistId === checklistId) redoSub = s;
+        } else if (assignmentId) {
+          const asn = await checklistService.getAssignment(assignmentId);
+          if (asn?.submissionId) {
+            const s = await checklistService.getSubmission(asn.submissionId);
+            if (s?.status === "rejected" && s.checklistId === checklistId) redoSub = s;
+          }
+        }
+
+        if (redoSub) {
+          const merged: Record<string, any> = { ...defaults };
+          if (Array.isArray(redoSub.answers)) {
+            for (const a of redoSub.answers) {
+              merged[a.questionId] = { value: a.value, score: a.score || 0, answeredAt: a.answeredAt };
+            }
+          }
+          setAnswers(merged);
+          setDraftId(null);
+          setManagerFeedback(String(redoSub.validationComments || "").trim() || null);
+          setDraftRestored(false);
+          setShowDraftBanner(false);
+          setPendingDraft(null);
+        } else if (existingDraft && Array.isArray(existingDraft.answers) && existingDraft.answers.length > 0) {
           setDraftId(existingDraft.id);
           setPendingDraft(existingDraft);
           setShowDraftBanner(true);
-          setAnswers(defaults); // load defaults for now; user can restore
+          setAnswers(defaults);
+          setManagerFeedback(null);
         } else {
           setAnswers(defaults);
+          setManagerFeedback(null);
         }
       }
     } catch (err) {
@@ -2125,6 +2155,22 @@ export function ChecklistExecution({ checklistId, assignmentId, onBack, onSubmit
         </div>
       </header>
 
+      {/* ── Manager feedback (rejected checklist redo) ─────────────────────── */}
+      {managerFeedback && (
+        <div className="mx-4 mt-3 p-4 bg-orange-50 border-2 border-orange-200 rounded-2xl">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 bg-orange-100 rounded-xl flex items-center justify-center shrink-0">
+              <MessageSquare className="w-5 h-5 text-orange-700" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-orange-900">Manager feedback</p>
+              <p className="text-sm text-orange-950/90 mt-1 whitespace-pre-wrap leading-relaxed">{managerFeedback}</p>
+              <p className="text-xs text-orange-700/80 mt-2">Update your answers below, then submit again.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Draft restore card ─────────────────────────────────────────────── */}
       {showDraftBanner && pendingDraft && (
         <div className="mx-4 mt-4 p-4 bg-amber-50 border-2 border-amber-200 rounded-2xl">
@@ -2292,6 +2338,22 @@ export function ChecklistExecution({ checklistId, assignmentId, onBack, onSubmit
         DESKTOP LAYOUT  (hidden on mobile)
     ═══════════════════════════════════════════════════════════════════════ */}
     <div className="hidden sm:block min-h-screen bg-gradient-to-br from-slate-50 via-white to-teal-50/20">
+
+      {/* ── Manager feedback (rejected checklist redo) ───────────────────── */}
+      {managerFeedback && (
+        <div className="bg-orange-50 border-b-2 border-orange-200 px-4 py-3 z-30 relative">
+          <div className="max-w-3xl mx-auto flex items-start gap-4">
+            <div className="w-9 h-9 bg-orange-100 rounded-xl flex items-center justify-center shrink-0">
+              <MessageSquare className="w-5 h-5 text-orange-700" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-orange-900">Manager feedback</p>
+              <p className="text-sm text-orange-950/90 mt-1 whitespace-pre-wrap leading-relaxed">{managerFeedback}</p>
+              <p className="text-xs text-orange-700/80 mt-2">Update your answers and submit again.</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Draft Restore Banner ─────────────────────────────────────────── */}
       {showDraftBanner && pendingDraft && (

@@ -172,6 +172,16 @@ export const checklistService = {
     return response.assignments;
   },
 
+  async getAssignment(assignmentId: string): Promise<any | null> {
+    try {
+      const response = await apiFetch(`/assignments/${assignmentId}`, { method: 'GET' });
+      return response.assignment ?? null;
+    } catch (error) {
+      console.error('Error fetching assignment:', error);
+      return null;
+    }
+  },
+
   async submitExecution(checklistId: string, assignmentId: string | null, answers: any[]): Promise<any> {
     const response = await apiFetch('/submissions', {
       method: 'POST',
@@ -181,10 +191,11 @@ export const checklistService = {
     return response.submission;
   },
 
-  async getSubmissions(checklistId?: string, status?: string): Promise<any[]> {
+  async getSubmissions(checklistId?: string, status?: string, assignmentId?: string): Promise<any[]> {
     const params = new URLSearchParams();
     if (checklistId) params.set('checklistId', checklistId);
     if (status) params.set('status', status);
+    if (assignmentId) params.set('assignmentId', assignmentId);
     const query = params.toString() ? `?${params.toString()}` : '';
     const response = await apiFetch(`/submissions${query}`, { method: 'GET' });
     return response.submissions;
@@ -272,10 +283,16 @@ export const checklistService = {
     return response.submissions || [];
   },
 
-  async getNotifications(unreadOnly = false): Promise<any[]> {
+  /**
+   * @param userId When set (e.g. `"guest"` for operators), only that recipient's notifications are returned.
+   */
+  async getNotifications(unreadOnly = false, userId?: string): Promise<any[]> {
     try {
-      const query = unreadOnly ? '?unread=true' : '';
-      const response = await apiFetch(`/notifications${query}`, { method: 'GET' });
+      const params = new URLSearchParams();
+      if (unreadOnly) params.set('unread', 'true');
+      if (userId) params.set('userId', userId);
+      const q = params.toString();
+      const response = await apiFetch(`/notifications${q ? `?${q}` : ''}`, { method: 'GET' });
       return response.notifications ?? [];
     } catch (err) {
       console.warn('[checklistService] getNotifications failed, returning []:', err);

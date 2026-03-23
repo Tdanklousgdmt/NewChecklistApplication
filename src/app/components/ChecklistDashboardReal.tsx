@@ -35,7 +35,8 @@ import { QRScannerModal } from "./QRScannerModal";
 interface ChecklistDashboardProps {
   role: "user" | "manager";
   onCreateNew: () => void;
-  onExecuteChecklist?: (checklistId: string, assignmentId?: string) => void;
+  /** `redoSubmissionId` opens execution with manager feedback and answers from that rejected submission. */
+  onExecuteChecklist?: (checklistId: string, assignmentId?: string, redoSubmissionId?: string) => void;
   onViewChecklist?: (checklistId: string) => void;
   onValidateSubmission?: (submissionId: string) => void;
   onOpenLibrary?: () => void;
@@ -76,10 +77,12 @@ export function ChecklistDashboardReal({
   const [assignments, setAssignments] = useState<any[]>([]);
   const [pendingSubmissions, setPendingSubmissions] = useState<any[]>([]);
   const [draftSubmissions, setDraftSubmissions] = useState<any[]>([]);
+  const [rejectedSubmissions, setRejectedSubmissions] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<"my-tasks" | "all-checklists" | "drafts" | "validations" | "in-progress">(
-    role === "manager" ? "validations" : "my-tasks"
-  );
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<
+    "my-tasks" | "all-checklists" | "drafts" | "validations" | "in-progress" | "returned"
+  >(role === "manager" ? "validations" : "my-tasks");
 
   // View toggle state
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
@@ -122,33 +125,47 @@ export function ChecklistDashboardReal({
     }
   };
 
+  const notificationUserId = role === "user" ? "guest" : undefined;
+
+  const refreshNotifications = async () => {
+    try {
+      const list = await checklistService.getNotifications(false, notificationUserId);
+      setNotifications(list);
+    } catch (e) {
+      console.error("Error refreshing notifications:", e);
+    }
+  };
+
   const loadDashboardData = async () => {
     setLoading(true);
     try {
       if (role === "user") {
-        const [assignmentsRes, draftsRes, draftSubsRes, notificationsRes] = await Promise.allSettled([
+        const [assignmentsRes, draftsRes, draftSubsRes, notificationsRes, rejectedRes] = await Promise.allSettled([
           checklistService.getAssignments("pending"),
           checklistService.listChecklists("draft"),
           checklistService.listDraftSubmissions(),
-          checklistService.getNotifications(true),
+          checklistService.getNotifications(false, notificationUserId),
+          checklistService.getSubmissions(undefined, "rejected"),
         ]);
         setAssignments(assignmentsRes.status === "fulfilled" ? assignmentsRes.value : []);
         setDraftChecklists(draftsRes.status === "fulfilled" ? draftsRes.value : []);
         setDraftSubmissions(draftSubsRes.status === "fulfilled" ? draftSubsRes.value : []);
         setNotifications(notificationsRes.status === "fulfilled" ? notificationsRes.value : []);
+        setRejectedSubmissions(rejectedRes.status === "fulfilled" ? rejectedRes.value : []);
       } else {
         const [activeRes, draftsRes, submissionsRes, draftSubsRes, notificationsRes] = await Promise.allSettled([
           checklistService.listChecklists("active"),
           checklistService.listChecklists("draft"),
           checklistService.getSubmissions(undefined, "submitted"),
           checklistService.listDraftSubmissions(),
-          checklistService.getNotifications(true),
+          checklistService.getNotifications(false, notificationUserId),
         ]);
         setActiveChecklists(activeRes.status === "fulfilled" ? activeRes.value : []);
         setDraftChecklists(draftsRes.status === "fulfilled" ? draftsRes.value : []);
         setPendingSubmissions(submissionsRes.status === "fulfilled" ? submissionsRes.value : []);
         setDraftSubmissions(draftSubsRes.status === "fulfilled" ? draftSubsRes.value : []);
         setNotifications(notificationsRes.status === "fulfilled" ? notificationsRes.value : []);
+        setRejectedSubmissions([]);
       }
     } catch (error) {
       console.error("Error loading dashboard data:", error);
@@ -179,6 +196,29 @@ export function ChecklistDashboardReal({
     if (diffHours < 24) return `${diffHours}h ago`;
     if (diffDays < 7)  return `${diffDays}d ago`;
     return date.toLocaleDateString();
+  };
+
+  const openFromNotification = async (n: any) => {
+    try {
+      if (!n.read) await checklistService.markNotificationRead(n.id);
+    } catch {
+      /* non-fatal */
+    }
+    setNotificationsOpen(false);
+    await refreshNotifications();
+
+    if (n.type === "submission_rejected" && n.checklistId && onExecuteChecklist) {
+      onExecuteChecklist(n.checklistId, n.assignmentId, n.submissionId);
+      return;
+    }
+    if (n.type === "assignment" && n.checklistId && onExecuteChecklist) {
+      onExecuteChecklist(n.checklistId, n.assignmentId);
+      return;
+    }
+    if (n.type === "validation_required" && n.submissionId && onValidateSubmission) {
+      onValidateSubmission(n.submissionId);
+      return;
+    }
   };
 
   // Reusable select style
@@ -218,12 +258,57 @@ export function ChecklistDashboardReal({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          <button type="button" className="relative p-2 hover:bg-gray-50 rounded-lg transition-colors">
-            <Bell className="w-5 h-5 text-gray-600" />
-            {notifications.length > 0 && (
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              aria-expanded={notificationsOpen}
+              aria-haspopup="true"
+              onClick={() => {
+                setNotificationsOpen((o) => {
+                  const next = !o;
+                  if (next) void refreshNotifications();
+                  return next;
+                });
+              }}
+              className="relative p-2 hover:bg-gray-50 rounded-lg transition-colors"
+            >
+              <Bell className="w-5 h-5 text-gray-600" />
+              {notifications.some((n) => !n.read) && (
+                <span className="absolute top-1 right-1 h-2 min-w-2 px-0.5 bg-red-500 rounded-full" />
+              )}
+            </button>
+            {notificationsOpen && (
+              <div
+                className="absolute right-0 top-full mt-2 w-[min(calc(100vw-2rem),20rem)] max-h-[min(70vh,24rem)] overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg z-50 py-2"
+                role="menu"
+              >
+                <p className="px-3 pb-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Notifications</p>
+                {notifications.length === 0 ? (
+                  <p className="px-3 py-4 text-sm text-gray-400">No notifications yet.</p>
+                ) : (
+                  notifications.map((n) => (
+                    <button
+                      key={n.id}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => void openFromNotification(n)}
+                      className={`w-full text-left px-3 py-2.5 hover:bg-gray-50 border-b border-gray-50 last:border-0 ${
+                        !n.read ? "bg-teal-50/50" : ""
+                      }`}
+                    >
+                      <p className="text-xs text-gray-400">{formatDate(n.createdAt ?? Date.now())}</p>
+                      <p className="text-sm text-gray-800 mt-0.5 leading-snug">{n.message}</p>
+                      {n.type === "submission_rejected" && n.validationComments && (
+                        <p className="text-xs text-orange-900 mt-1.5 line-clamp-4 whitespace-pre-wrap">
+                          {n.validationComments}
+                        </p>
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
             )}
-          </button>
+          </div>
           <button
             type="button"
             onClick={() => setScannerOpen(true)}
@@ -496,6 +581,14 @@ export function ChecklistDashboardReal({
                     <TabBtn active={activeTab === "my-tasks"} onClick={() => setActiveTab("my-tasks")}>
                       My Tasks ({assignments.length})
                     </TabBtn>
+                    <TabBtn
+                      active={activeTab === "returned"}
+                      onClick={() => setActiveTab("returned")}
+                      dot={rejectedSubmissions.length > 0}
+                      amber
+                    >
+                      Returned ({rejectedSubmissions.length})
+                    </TabBtn>
                     <TabBtn active={activeTab === "in-progress"} onClick={() => setActiveTab("in-progress")} dot={draftSubmissions.length > 0} amber>
                       In Progress ({draftSubmissions.length})
                     </TabBtn>
@@ -589,6 +682,48 @@ export function ChecklistDashboardReal({
                           </div>
                         );
                       })
+                    )}
+                  </div>
+                )}
+
+                {/* Returned — rejected submissions (user) */}
+                {activeTab === "returned" && (
+                  <div className="space-y-3">
+                    {rejectedSubmissions.length === 0 ? (
+                      <EmptyState
+                        icon={<CheckCircle2 className="w-12 h-12 text-gray-300" />}
+                        title="Nothing returned"
+                        subtitle="If a manager rejects a submission, it appears here with their comments."
+                      />
+                    ) : (
+                      rejectedSubmissions.map((s: any) => (
+                        <div
+                          key={s.id}
+                          className="bg-orange-50/70 rounded-xl border border-orange-100 p-4 sm:p-5"
+                        >
+                          <p className="text-xs text-orange-800 font-semibold uppercase tracking-wide">Needs correction</p>
+                          {s.validationComments ? (
+                            <p className="text-sm text-gray-900 mt-2 whitespace-pre-wrap leading-relaxed">
+                              {s.validationComments}
+                            </p>
+                          ) : (
+                            <p className="text-sm text-gray-500 mt-2">No comment was provided.</p>
+                          )}
+                          <p className="text-xs text-gray-400 mt-3">
+                            Updated {formatDate(s.validatedAt ?? s.submittedAt ?? Date.now())}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onExecuteChecklist?.(s.checklistId, s.assignmentId ?? undefined, s.id)
+                            }
+                            className="mt-4 flex items-center justify-center gap-2 w-full sm:w-auto px-4 py-2.5 bg-[#2abaad] text-white rounded-xl text-sm font-medium hover:bg-[#24a699] transition-colors"
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                            Fix and resubmit
+                          </button>
+                        </div>
+                      ))
                     )}
                   </div>
                 )}

@@ -21,6 +21,7 @@ export default function App() {
 
   const [activeChecklistId, setActiveChecklistId] = useState<string | null>(null);
   const [activeAssignmentId, setActiveAssignmentId] = useState<string | null>(null);
+  const [activeRedoSubmissionId, setActiveRedoSubmissionId] = useState<string | null>(null);
   const [activeSubmissionId, setActiveSubmissionId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -36,6 +37,8 @@ export default function App() {
       // Clean the URL without a page reload
       window.history.replaceState({}, "", window.location.pathname);
       setActiveChecklistId(clId);
+      setActiveAssignmentId(null);
+      setActiveRedoSubmissionId(null);
       setView("execute");
     }
   }, []);
@@ -59,6 +62,7 @@ export default function App() {
   const handleNavNavigate = (dest: "dashboard" | "library" | "create" | "reports") => {
     setActiveChecklistId(null);
     setActiveAssignmentId(null);
+    setActiveRedoSubmissionId(null);
     setActiveSubmissionId(null);
     setView(dest === "create" ? "create" : dest);
   };
@@ -72,6 +76,8 @@ export default function App() {
   const handleQRResult = (checklistId: string) => {
     setScannerOpen(false);
     setActiveChecklistId(checklistId);
+    setActiveAssignmentId(null);
+    setActiveRedoSubmissionId(null);
     setView("execute");
   };
 
@@ -100,8 +106,9 @@ export default function App() {
         <ChecklistExecution
           checklistId={activeChecklistId}
           assignmentId={activeAssignmentId || undefined}
-          onBack={() => { setView("dashboard"); setActiveChecklistId(null); setActiveAssignmentId(null); }}
-          onSubmitted={() => { setView("dashboard"); setActiveChecklistId(null); setActiveAssignmentId(null); }}
+          redoFromSubmissionId={activeRedoSubmissionId || undefined}
+          onBack={() => { setView("dashboard"); setActiveChecklistId(null); setActiveAssignmentId(null); setActiveRedoSubmissionId(null); }}
+          onSubmitted={() => { setView("dashboard"); setActiveChecklistId(null); setActiveAssignmentId(null); setActiveRedoSubmissionId(null); }}
           onOpenNav={openNav}
         />
         <Toaster position="top-right" richColors />
@@ -192,9 +199,10 @@ export default function App() {
       <ChecklistDashboardReal
         role={role}
         onCreateNew={() => setView("create")}
-        onExecuteChecklist={(checklistId, assignmentId) => {
+        onExecuteChecklist={(checklistId, assignmentId, redoSubmissionId) => {
           setActiveChecklistId(checklistId);
-          setActiveAssignmentId(assignmentId || null);
+          setActiveAssignmentId(assignmentId ?? null);
+          setActiveRedoSubmissionId(redoSubmissionId ?? null);
           setView("execute");
         }}
         onViewChecklist={(checklistId) => { setActiveChecklistId(checklistId); setView("view"); }}
