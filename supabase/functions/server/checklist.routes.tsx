@@ -82,6 +82,8 @@ async function createNotification(params: {
   assignmentId?: string;
   submissionId?: string;
   message: string;
+  /** Full manager comment for checklist rejections (shown in notification UI + redo flow). */
+  validationComments?: string;
 }) {
   const notificationId = `notification_${Date.now()}_${crypto.randomUUID()}`;
   const notification = {
@@ -487,13 +489,35 @@ app.put("/submissions/:id/validate", async (c) => {
     await kv.set(`submission:${submissionId}`, updated);
     await kv.set(`submission_meta:${submissionId}`, submissionMeta(updated));
 
+    const commentText = typeof comments === "string" ? comments.trim() : "";
+    const message =
+      status === "rejected" && commentText
+        ? `Your checklist was returned for changes. Feedback: ${commentText.length > 180 ? `${commentText.slice(0, 177)}…` : commentText}`
+        : status === "rejected"
+          ? "Your checklist was returned for changes. Please review the feedback and resubmit."
+          : "Your checklist has been validated.";
+
     await createNotification({
       userId: submission.submittedBy,
       type: status === "validated" ? "submission_validated" : "submission_rejected",
       checklistId: submission.checklistId,
+      assignmentId: submission.assignmentId || undefined,
       submissionId,
-      message: `Your submission has been ${status}`,
+      message,
+      ...(status === "rejected" && commentText ? { validationComments: commentText } : {}),
     });
+
+    // Re-open the linked assignment so the operator can redo and resubmit.
+    if (status === "rejected" && submission.assignmentId) {
+      const assignment = parseKvValue(await kv.get(`assignment:${submission.assignmentId}`));
+      if (assignment) {
+        await kv.set(`assignment:${submission.assignmentId}`, {
+          ...assignment,
+          status: "pending",
+          completedAt: null,
+        });
+      }
+    }
 
     console.log(`Submission ${status}: ${submissionId}`);
     return c.json({ success: true, submission: updated });
@@ -508,6 +532,7 @@ app.get("/submissions", async (c) => {
   try {
     const checklistId = c.req.query("checklistId");
     const status = c.req.query("status");
+    const assignmentId = c.req.query("assignmentId");
 
     // Use the lightweight meta prefix only — never includes answers/base64 blobs.
     // A single query avoids the statement timeout caused by scanning full records.
@@ -520,6 +545,7 @@ app.get("/submissions", async (c) => {
         if (!s || !s.id) return false;
         if (checklistId && s.checklistId !== checklistId) return false;
         if (status && s.status !== status) return false;
+        if (assignmentId && s.assignmentId !== assignmentId) return false;
         return true;
       })
       .filter((s: any, i: number, arr: any[]) => arr.findIndex((x: any) => x.id === s.id) === i)
@@ -549,10 +575,11 @@ app.get("/submissions/:id", async (c) => {
 // NOTIFICATIONS
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** GET /notifications — list notifications */
+/** GET /notifications — list notifications (optional ?userId= to scope recipient) */
 app.get("/notifications", async (c) => {
   try {
     const unreadOnly = c.req.query("unread") === "true";
+    const userIdFilter = c.req.query("userId");
     const raw = await kv.getByPrefix("notification:");
     const safeRaw = Array.isArray(raw) ? raw : [];
     const notifications = safeRaw
@@ -560,6 +587,7 @@ app.get("/notifications", async (c) => {
       .filter((n: any) => {
         // Skip index keys (string values) — keep only notification objects
         if (!n || typeof n !== "object" || !n.userId) return false;
+        if (userIdFilter && n.userId !== userIdFilter) return false;
         if (unreadOnly && n.read) return false;
         return true;
       })
