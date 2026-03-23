@@ -672,6 +672,45 @@ function SectionExecution({ field, renderField }: { field: any; renderField: (f:
   );
 }
 
+/** Some stored checklists use `fields`; the editor uses `canvasFields`. */
+function pickCanvasFields(data: any): any[] {
+  if (!data) return [];
+  if (Array.isArray(data.canvasFields) && data.canvasFields.length > 0) return data.canvasFields;
+  if (Array.isArray(data.fields) && data.fields.length > 0) return data.fields;
+  return Array.isArray(data.canvasFields) ? data.canvasFields : [];
+}
+
+function isSubmissionRejected(s: any): boolean {
+  return String(s?.status ?? "").toLowerCase() === "rejected";
+}
+
+function sameChecklistId(a: unknown, b: unknown): boolean {
+  return String(a ?? "") === String(b ?? "");
+}
+
+/** Build answer map from a full submission (array or legacy object shape). */
+function answersMapFromSubmission(sub: any): Record<string, any> | null {
+  const out: Record<string, any> = {};
+  const raw = sub?.answers;
+  if (Array.isArray(raw)) {
+    for (const a of raw) {
+      if (a?.questionId != null) {
+        out[String(a.questionId)] = { value: a.value, score: a.score || 0, answeredAt: a.answeredAt };
+      }
+    }
+    return Object.keys(out).length ? out : null;
+  }
+  if (raw && typeof raw === "object") {
+    for (const [k, v] of Object.entries(raw)) {
+      if (v && typeof v === "object" && "value" in (v as any)) {
+        out[k] = v as any;
+      }
+    }
+    return Object.keys(out).length ? out : null;
+  }
+  return null;
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 export function ChecklistExecution({ checklistId, assignmentId, redoFromSubmissionId, onBack, onSubmitted, onOpenNav }: ChecklistExecutionProps) {
   const [loading, setLoading]       = useState(true);
@@ -722,20 +761,23 @@ export function ChecklistExecution({ checklistId, assignmentId, redoFromSubmissi
 
   const loadChecklist = async () => {
     try {
-      const [checklistData, existingDraft] = await Promise.all([
+      const [checklistData, draftRow] = await Promise.all([
         checklistService.getChecklist(checklistId),
         checklistService.getDraftSubmission(checklistId, assignmentId),
       ]);
 
       if (checklistData) {
-        setChecklist(checklistData.data);
+        const rawChecklist = checklistData.data;
+        const layoutFields = pickCanvasFields(rawChecklist);
+        setChecklist({ ...rawChecklist, canvasFields: layoutFields });
+
         // Build defaults from field definitions — flatten section children too
         const defaults: Record<string, any> = {};
-        const flattenForDefaults = (fields: any[]): any[] =>
-          fields.flatMap((f: any) =>
+        const flattenForDefaults = (flds: any[]): any[] =>
+          flds.flatMap((f: any) =>
             f.typeId === "section" ? (f.children || []) : [f]
           );
-        for (const f of flattenForDefaults(checklistData.data?.canvasFields || [])) {
+        for (const f of flattenForDefaults(layoutFields)) {
           if (f.typeId === "yes_no") defaults[f.uid] = { value: null };
           if (f.typeId === "checkbox") defaults[f.uid] = { value: false };
           if (f.typeId === "custom_buttons" && f.customButtons) {
@@ -748,25 +790,41 @@ export function ChecklistExecution({ checklistId, assignmentId, redoFromSubmissi
           if (f.typeId === "time"     && f.defaultToNow) defaults[f.uid] = { value: new Date().toTimeString().slice(0, 5) };
         }
 
+        // List/meta APIs omit `answers` — hydrate draft row so Resume / restore works.
+        let existingDraft = draftRow;
+        if (existingDraft?.id && (!Array.isArray(existingDraft.answers) || existingDraft.answers.length === 0)) {
+          const fullDraft = await checklistService.getSubmission(existingDraft.id);
+          if (fullDraft && String(fullDraft.status ?? "").toLowerCase() === "draft") {
+            existingDraft = fullDraft;
+          }
+        }
+
         let redoSub: any = null;
         if (redoFromSubmissionId) {
-          const s = await checklistService.getSubmission(redoFromSubmissionId);
-          if (s?.status === "rejected" && s.checklistId === checklistId) redoSub = s;
+          const sub = await checklistService.getSubmission(redoFromSubmissionId);
+          if (!sub) {
+            toast.error("Could not load that returned submission. Open it from the Returned tab or your notifications.");
+          } else if (!isSubmissionRejected(sub)) {
+            toast.error("That submission is not marked as returned anymore.");
+          } else if (!sameChecklistId(sub.checklistId, checklistId)) {
+            toast.error("That submission belongs to a different checklist.");
+          } else {
+            redoSub = sub;
+          }
         } else if (assignmentId) {
           const asn = await checklistService.getAssignment(assignmentId);
           if (asn?.submissionId) {
-            const s = await checklistService.getSubmission(asn.submissionId);
-            if (s?.status === "rejected" && s.checklistId === checklistId) redoSub = s;
+            const sub = await checklistService.getSubmission(asn.submissionId);
+            if (sub && isSubmissionRejected(sub) && sameChecklistId(sub.checklistId, checklistId)) {
+              redoSub = sub;
+            }
           }
         }
 
         if (redoSub) {
           const merged: Record<string, any> = { ...defaults };
-          if (Array.isArray(redoSub.answers)) {
-            for (const a of redoSub.answers) {
-              merged[a.questionId] = { value: a.value, score: a.score || 0, answeredAt: a.answeredAt };
-            }
-          }
+          const fromSub = answersMapFromSubmission(redoSub);
+          if (fromSub) Object.assign(merged, fromSub);
           setAnswers(merged);
           setDraftId(null);
           setManagerFeedback(String(redoSub.validationComments || "").trim() || null);
@@ -925,7 +983,7 @@ export function ChecklistExecution({ checklistId, assignmentId, redoFromSubmissi
     }
   };
 
-  const allFields: any[] = checklist?.canvasFields || [];
+  const allFields: any[] = pickCanvasFields(checklist);
 
   // Flatten top-level fields AND children of sections so completion/validation
   // correctly accounts for required fields nested inside sections.
@@ -2097,7 +2155,7 @@ export function ChecklistExecution({ checklistId, assignmentId, redoFromSubmissi
     );
   }
 
-  const fields: any[] = checklist.canvasFields || [];
+  const fields: any[] = allFields;
 
   const formatSavedTime = (date: Date) => {
     const mins = Math.floor((Date.now() - date.getTime()) / 60000);
@@ -2128,7 +2186,7 @@ export function ChecklistExecution({ checklistId, assignmentId, redoFromSubmissi
       <header className="sticky top-0 z-30 bg-white border-b border-gray-100 shadow-sm">
         <div className="flex items-center gap-3 px-4 pt-3 pb-2">
           <div className="flex items-center gap-1 shrink-0">
-            <button type="button" onClick={onOpenNav} aria-label="Open menu"
+            <button type="button" onClick={() => onOpenNav?.()} aria-label="Open menu"
               className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-gray-100 active:bg-gray-200 transition-colors">
               <Menu className="w-5 h-5 text-gray-500" />
             </button>
@@ -2247,13 +2305,13 @@ export function ChecklistExecution({ checklistId, assignmentId, redoFromSubmissi
 
       {/* ── Fields ─────────────────────────────────────────────────────────── */}
       <div className="px-4 mt-4 space-y-3 pb-4">
-        {(checklist.canvasFields || []).length === 0 ? (
+        {fields.length === 0 ? (
           <div className="flex flex-col items-center py-20 text-center">
             <AlertCircle className="w-12 h-12 text-gray-200 mb-3" />
             <p className="text-sm text-gray-400">This checklist has no fields yet.</p>
           </div>
         ) : (
-          (checklist.canvasFields || []).map((field: any) => {
+          fields.map((field: any) => {
             const isAnswerable = !["section", "separator", "instruction"].includes(field.typeId);
             const idx = isAnswerable ? ++mobileFieldCounter : undefined;
             return (
@@ -2404,7 +2462,7 @@ export function ChecklistExecution({ checklistId, assignmentId, redoFromSubmissi
       <header className="bg-white border-b border-gray-100 px-6 py-4 sticky top-0 z-20 shadow-sm">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <button type="button" onClick={onOpenNav} aria-label="Open menu"
+            <button type="button" onClick={() => onOpenNav?.()} aria-label="Open menu"
               className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500 shrink-0">
               <Menu className="w-5 h-5" />
             </button>
