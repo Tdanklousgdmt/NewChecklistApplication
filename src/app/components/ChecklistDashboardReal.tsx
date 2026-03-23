@@ -18,6 +18,7 @@ import {
   RotateCcw,
   Save,
   ChevronDown,
+  Check,
 } from "lucide-react";
 import { checklistService } from "../services/checklistService";
 import { CalendarView } from "./CalendarView";
@@ -45,7 +46,10 @@ export function ChecklistDashboardReal({
   const [pendingSubmissions, setPendingSubmissions] = useState<any[]>([]);
   const [draftSubmissions, setDraftSubmissions] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<"my-tasks" | "all-checklists" | "drafts" | "validations" | "in-progress">(
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [markingAllNotifications, setMarkingAllNotifications] = useState(false);
+  const [markingNotificationIds, setMarkingNotificationIds] = useState<Set<string>>(new Set());
+  const [activeTab, setActiveTab] = useState<"my-tasks" | "all-checklists" | "drafts" | "validations" | "in-progress" | "rejected">(
     role === "manager" ? "validations" : "my-tasks"
   );
 
@@ -76,6 +80,48 @@ export function ChecklistDashboardReal({
     loadDashboardData();
   }, []);
 
+  const refreshNotifications = async () => {
+    try {
+      const next = await checklistService.getNotifications(false, role);
+      setNotifications(next);
+    } catch (error) {
+      console.error("Error refreshing notifications:", error);
+    }
+  };
+
+  const markNotificationRead = async (notificationId: string) => {
+    setMarkingNotificationIds((prev) => new Set([...prev, notificationId]));
+    try {
+      await checklistService.markNotificationRead(notificationId);
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === notificationId ? { ...n, read: true, readAt: Date.now() } : n))
+      );
+    } catch (error) {
+      console.error("Error marking notification as read:", error);
+    } finally {
+      setMarkingNotificationIds((prev) => {
+        const next = new Set(prev);
+        next.delete(notificationId);
+        return next;
+      });
+    }
+  };
+
+  const markAllNotificationsRead = async () => {
+    const unread = notifications.filter((n) => !n.read);
+    if (unread.length === 0) return;
+
+    setMarkingAllNotifications(true);
+    try {
+      await Promise.all(unread.map((n) => checklistService.markNotificationRead(n.id)));
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true, readAt: Date.now() })));
+    } catch (error) {
+      console.error("Error marking all notifications as read:", error);
+    } finally {
+      setMarkingAllNotifications(false);
+    }
+  };
+
   const refreshPendingValidations = async () => {
     if (role !== "manager") return;
 
@@ -98,7 +144,7 @@ export function ChecklistDashboardReal({
           checklistService.getAssignments("pending"),
           checklistService.listChecklists("draft"),
           checklistService.listDraftSubmissions(),
-          checklistService.getNotifications(true),
+          checklistService.getNotifications(false, role),
         ]);
         setAssignments(assignmentsRes.status === "fulfilled" ? assignmentsRes.value : []);
         setDraftChecklists(draftsRes.status === "fulfilled" ? draftsRes.value : []);
@@ -110,7 +156,7 @@ export function ChecklistDashboardReal({
           checklistService.listChecklists("draft"),
           checklistService.getSubmissions(undefined, "submitted"),
           checklistService.listDraftSubmissions(),
-          checklistService.getNotifications(true),
+          checklistService.getNotifications(false, role),
         ]);
         setActiveChecklists(activeRes.status === "fulfilled" ? activeRes.value : []);
         setDraftChecklists(draftsRes.status === "fulfilled" ? draftsRes.value : []);
@@ -149,6 +195,18 @@ export function ChecklistDashboardReal({
     return date.toLocaleDateString();
   };
 
+  const formatDateTime = (timestamp: number) =>
+    new Date(timestamp).toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+  const unreadNotifications = notifications.filter((n) => !n.read);
+  const pendingAssignments = assignments.filter((a: any) => !a.reworkRequired);
+  const rejectedAssignments = assignments.filter((a: any) => a.reworkRequired);
+
   // Reusable select style
   const selectStyle = {
     backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
@@ -184,12 +242,92 @@ export function ChecklistDashboardReal({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          <button type="button" className="relative p-2 hover:bg-gray-50 rounded-lg transition-colors">
-            <Bell className="w-5 h-5 text-gray-600" />
-            {notifications.length > 0 && (
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+          <div className="relative">
+            <button
+              type="button"
+              onClick={async () => {
+                if (!showNotifications) await refreshNotifications();
+                setShowNotifications((prev) => !prev);
+              }}
+              className="relative p-2 hover:bg-gray-50 rounded-lg transition-colors"
+            >
+              <Bell className="w-5 h-5 text-gray-600" />
+              {unreadNotifications.length > 0 && (
+                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+              )}
+            </button>
+
+            {showNotifications && (
+              <div className="absolute right-0 mt-2 w-[360px] max-w-[calc(100vw-2rem)] bg-white border border-gray-100 rounded-2xl shadow-xl z-40 overflow-hidden">
+                <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">Notifications</p>
+                    <p className="text-xs text-gray-400">
+                      {unreadNotifications.length} unread · {notifications.length} total
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={markAllNotificationsRead}
+                      disabled={markingAllNotifications || unreadNotifications.length === 0}
+                      className="text-[11px] px-2.5 py-1 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {markingAllNotifications ? "Marking…" : "Mark all read"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowNotifications(false)}
+                      className="text-xs text-gray-400 hover:text-gray-600"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+
+                <div className="max-h-[360px] overflow-y-auto">
+                  {notifications.length === 0 ? (
+                    <div className="px-4 py-10 text-center">
+                      <p className="text-sm text-gray-500">No notifications yet</p>
+                      <p className="text-xs text-gray-400 mt-1">Actions will appear here in real time.</p>
+                    </div>
+                  ) : (
+                    notifications.map((n: any) => (
+                      <div
+                        key={n.id}
+                        className={`px-4 py-3 border-b border-gray-50 last:border-b-0 ${
+                          n.read ? "bg-white" : "bg-teal-50/40"
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div
+                            className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${
+                              n.read ? "bg-gray-200" : "bg-teal-500"
+                            }`}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-gray-700 leading-snug">{n.message || "Notification"}</p>
+                            <p className="text-[11px] text-gray-400 mt-1">{formatDateTime(n.createdAt || Date.now())}</p>
+                          </div>
+                          {!n.read && (
+                            <button
+                              type="button"
+                              onClick={() => markNotificationRead(n.id)}
+                              disabled={markingNotificationIds.has(n.id)}
+                              className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                            >
+                              <Check className="w-3 h-3" />
+                              Read
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             )}
-          </button>
+          </div>
           <button
             type="button"
             onClick={onCreateNew}
@@ -223,7 +361,7 @@ export function ChecklistDashboardReal({
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-xs sm:text-sm text-gray-500 mb-1">Pending Tasks</p>
-                      <p className="text-2xl font-bold text-gray-800">{assignments.length}</p>
+                      <p className="text-2xl font-bold text-gray-800">{pendingAssignments.length}</p>
                     </div>
                     <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-50 rounded-xl flex items-center justify-center">
                       <Clock className="w-5 h-5 sm:w-6 sm:h-6 text-amber-600" />
@@ -242,7 +380,24 @@ export function ChecklistDashboardReal({
                   </div>
                 </div>
                 <div
-                  className="col-span-2 sm:col-span-1 bg-white rounded-xl p-4 sm:p-5 shadow-sm border border-amber-100 cursor-pointer hover:border-amber-300 transition-colors"
+                  className="bg-white rounded-xl p-4 sm:p-5 shadow-sm border border-red-100 cursor-pointer hover:border-red-300 transition-colors"
+                  onClick={() => setActiveTab("rejected")}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs sm:text-sm text-gray-500 mb-1">Rejected</p>
+                      <p className="text-2xl font-bold text-gray-800">{rejectedAssignments.length}</p>
+                    </div>
+                    <div className="w-10 h-10 sm:w-12 sm:h-12 bg-red-50 rounded-xl flex items-center justify-center">
+                      <XCircle className="w-5 h-5 sm:w-6 sm:h-6 text-red-500" />
+                    </div>
+                  </div>
+                  {rejectedAssignments.length > 0 && (
+                    <p className="text-xs text-red-600 mt-2 font-medium">Redo required →</p>
+                  )}
+                </div>
+                <div
+                  className="bg-white rounded-xl p-4 sm:p-5 shadow-sm border border-amber-100 cursor-pointer hover:border-amber-300 transition-colors"
                   onClick={() => setActiveTab("in-progress")}
                 >
                   <div className="flex items-center justify-between">
@@ -431,7 +586,10 @@ export function ChecklistDashboardReal({
                 {role === "user" ? (
                   <>
                     <TabBtn active={activeTab === "my-tasks"} onClick={() => setActiveTab("my-tasks")}>
-                      My Tasks ({assignments.length})
+                      My Tasks ({pendingAssignments.length})
+                    </TabBtn>
+                    <TabBtn active={activeTab === "rejected"} onClick={() => setActiveTab("rejected")} dot={rejectedAssignments.length > 0}>
+                      Rejected ({rejectedAssignments.length})
                     </TabBtn>
                     <TabBtn active={activeTab === "in-progress"} onClick={() => setActiveTab("in-progress")} dot={draftSubmissions.length > 0} amber>
                       In Progress ({draftSubmissions.length})
@@ -464,10 +622,10 @@ export function ChecklistDashboardReal({
                 {/* My Tasks (User) */}
                 {activeTab === "my-tasks" && (
                   <div className="space-y-3">
-                    {assignments.length === 0 ? (
+                    {pendingAssignments.length === 0 ? (
                       <EmptyState icon={<CheckCircle2 className="w-12 h-12 text-gray-300" />} title="No pending tasks" subtitle="You're all caught up!" />
                     ) : (
-                      assignments.map((assignment: any) => (
+                      pendingAssignments.map((assignment: any) => (
                         <div key={assignment.id} className="bg-gray-50 rounded-xl p-4 border border-gray-100 hover:border-teal-200 hover:shadow-sm transition-all">
                           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                             <div className="flex-1 min-w-0">
@@ -494,6 +652,59 @@ export function ChecklistDashboardReal({
                             >
                               <PlayCircle className="w-4 h-4" />
                               Start
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+
+                {/* Rejected Tasks (User) */}
+                {activeTab === "rejected" && (
+                  <div className="space-y-3">
+                    {rejectedAssignments.length === 0 ? (
+                      <EmptyState
+                        icon={<XCircle className="w-12 h-12 text-gray-300" />}
+                        title="No rejected checklists"
+                        subtitle="Rejected submissions that need redo will appear here"
+                      />
+                    ) : (
+                      rejectedAssignments.map((assignment: any) => (
+                        <div
+                          key={assignment.id}
+                          className="bg-red-50 rounded-xl p-4 border border-red-200 hover:shadow-sm transition-all"
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <XCircle className="w-4 h-4 text-red-500 shrink-0" />
+                                <h3 className="font-medium text-gray-800 truncate">
+                                  {assignment.checklist?.title || "Rejected Checklist"}
+                                </h3>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-600">
+                                <span className="flex items-center gap-1">
+                                  <Calendar className="w-3.5 h-3.5" />
+                                  Rejected {formatDate(assignment.rejectedAt || assignment.assignedAt)}
+                                </span>
+                                {assignment.rejectionComments && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="text-red-600 truncate max-w-[380px]">
+                                      Comment: {assignment.rejectionComments}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => onExecuteChecklist?.(assignment.checklistId, assignment.id)}
+                              className="flex items-center justify-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors w-full sm:w-auto shrink-0"
+                            >
+                              <RotateCcw className="w-4 h-4" />
+                              Redo Checklist
                             </button>
                           </div>
                         </div>

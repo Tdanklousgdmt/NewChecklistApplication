@@ -272,9 +272,12 @@ export const checklistService = {
     return response.submissions || [];
   },
 
-  async getNotifications(unreadOnly = false): Promise<any[]> {
+  async getNotifications(unreadOnly = false, userId?: 'user' | 'manager'): Promise<any[]> {
     try {
-      const query = unreadOnly ? '?unread=true' : '';
+      const params = new URLSearchParams();
+      if (unreadOnly) params.set('unread', 'true');
+      if (userId) params.set('userId', userId);
+      const query = params.toString() ? `?${params.toString()}` : '';
       const response = await apiFetch(`/notifications${query}`, { method: 'GET' });
       return response.notifications ?? [];
     } catch (err) {

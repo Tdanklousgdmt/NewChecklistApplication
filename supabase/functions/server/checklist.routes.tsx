@@ -5,6 +5,8 @@ const app = new Hono();
 
 // ── Guest identity (no auth required) ────────────────────────────────────────
 const GUEST_USER = { id: "guest", email: "guest@local" };
+const ROLE_USER = "user";
+const ROLE_MANAGER = "manager";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
@@ -71,6 +73,14 @@ async function createAssignment(
     assignmentId,
     message: "You have been assigned a new checklist",
   });
+  // Role-level notification powers the in-app user/operator bell.
+  await notifyRole({
+    role: ROLE_USER,
+    type: "assignment",
+    checklistId,
+    assignmentId,
+    message: "A checklist has been assigned to you",
+  });
   console.log(`Assignment created: ${assignmentId} for ${assignedTo}`);
   return assignment;
 }
@@ -93,6 +103,24 @@ async function createNotification(params: {
   await kv.set(`notification:${notificationId}`, notification);
   console.log(`Notification created: ${notificationId} for user ${params.userId}`);
   return notification;
+}
+
+async function notifyRole(params: {
+  role: "user" | "manager";
+  type: string;
+  message: string;
+  checklistId?: string;
+  assignmentId?: string;
+  submissionId?: string;
+}) {
+  return createNotification({
+    userId: params.role,
+    type: params.type,
+    checklistId: params.checklistId,
+    assignmentId: params.assignmentId,
+    submissionId: params.submissionId,
+    message: params.message,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -151,6 +179,12 @@ app.post("/checklists", async (c) => {
     };
     await kv.set(`checklist:${checklistId}`, checklist);
     await kv.set(`checklist_meta:${checklistId}`, checklistMeta(checklist));
+    await notifyRole({
+      role: ROLE_MANAGER,
+      type: "checklist_created",
+      checklistId,
+      message: `Checklist "${checklist.title || checklistId}" was created`,
+    });
     console.log(`Checklist created: ${checklistId}`);
     return c.json({ success: true, checklist });
   } catch (error) {
@@ -245,6 +279,12 @@ app.put("/checklists/:id", async (c) => {
     };
     await kv.set(`checklist:${checklistId}`, updated);
     await kv.set(`checklist_meta:${checklistId}`, checklistMeta(updated));
+    await notifyRole({
+      role: ROLE_MANAGER,
+      type: "checklist_updated",
+      checklistId,
+      message: `Checklist "${updated.title || checklistId}" was updated`,
+    });
     console.log(`Checklist updated: ${checklistId} (v${updated.version})`);
     return c.json({ success: true, checklist: updated });
   } catch (error) {
@@ -274,6 +314,18 @@ app.post("/checklists/:id/publish", async (c) => {
     if (published.assignedTo) {
       await createAssignment(checklistId, published.assignedTo, GUEST_USER.id);
     }
+    await notifyRole({
+      role: ROLE_MANAGER,
+      type: "checklist_published",
+      checklistId,
+      message: `Checklist "${published.title || checklistId}" was published`,
+    });
+    await notifyRole({
+      role: ROLE_USER,
+      type: "checklist_published",
+      checklistId,
+      message: `Checklist "${published.title || checklistId}" is now active`,
+    });
 
     console.log(`Checklist published: ${checklistId}`);
     return c.json({ success: true, checklist: published });
@@ -291,6 +343,12 @@ app.delete("/checklists/:id", async (c) => {
     if (!existing) return c.json({ error: "Checklist not found" }, 404);
     await kv.del(`checklist:${checklistId}`);
     await kv.del(`checklist_meta:${checklistId}`);
+    await notifyRole({
+      role: ROLE_MANAGER,
+      type: "checklist_deleted",
+      checklistId,
+      message: `Checklist "${existing.title || checklistId}" was deleted`,
+    });
     console.log(`Checklist deleted: ${checklistId}`);
     return c.json({ success: true });
   } catch (error) {
@@ -318,6 +376,13 @@ app.post("/assignments", async (c) => {
       (assignment as any).dueDate = dueDate;
       await kv.set(`assignment:${assignment.id}`, assignment);
     }
+    await notifyRole({
+      role: ROLE_MANAGER,
+      type: "assignment_created",
+      checklistId,
+      assignmentId: assignment.id,
+      message: "A checklist assignment was created",
+    });
     return c.json({ success: true, assignment });
   } catch (error) {
     console.error("Error creating assignment:", error);
@@ -426,6 +491,13 @@ app.post("/submissions", async (c) => {
 
     // Notify manager if validation is required
     const checklist = parseKvValue(await kv.get(`checklist:${checklistId}`));
+    await notifyRole({
+      role: ROLE_USER,
+      type: "submission_created",
+      checklistId,
+      submissionId,
+      message: "Checklist submitted successfully",
+    });
     if (checklist?.validateChecklist && checklist?.managerName) {
       await createNotification({
         userId: checklist.managerName,
@@ -435,6 +507,15 @@ app.post("/submissions", async (c) => {
         message: "A checklist was submitted for validation",
       });
     }
+    await notifyRole({
+      role: ROLE_MANAGER,
+      type: checklist?.validateChecklist ? "validation_required" : "submission_received",
+      checklistId,
+      submissionId,
+      message: checklist?.validateChecklist
+        ? "A checklist was submitted and needs validation"
+        : "A checklist submission was received",
+    });
 
     console.log(`Submission created: ${submissionId}`);
     return c.json({ success: true, submission });
@@ -452,15 +533,60 @@ app.put("/submissions/:id", async (c) => {
     const submission = parseKvValue(await kv.get(`submission:${submissionId}`));
     if (!submission) return c.json({ error: "Submission not found" }, 404);
 
+    const becameSubmitted = submission.status !== "submitted" && body.status === "submitted";
+
     // Only allow updating draft submissions (or re-validate)
     const updated = {
       ...submission,
       ...body,
       id: submissionId,
+      totalScore: calculateTotalScore(body.answers || submission.answers || []),
       updatedAt: Date.now(),
     };
     await kv.set(`submission:${submissionId}`, updated);
     await kv.set(`submission_meta:${submissionId}`, submissionMeta(updated));
+
+    if (becameSubmitted && updated.assignmentId) {
+      const assignment = parseKvValue(await kv.get(`assignment:${updated.assignmentId}`));
+      if (assignment) {
+        await kv.set(`assignment:${updated.assignmentId}`, {
+          ...assignment,
+          status: "completed",
+          completedAt: Date.now(),
+          submissionId,
+        });
+      }
+    }
+
+    if (becameSubmitted) {
+      const checklist = parseKvValue(await kv.get(`checklist:${updated.checklistId}`));
+      await notifyRole({
+        role: ROLE_USER,
+        type: "submission_created",
+        checklistId: updated.checklistId,
+        submissionId,
+        message: "Checklist submitted successfully",
+      });
+      if (checklist?.validateChecklist && checklist?.managerName) {
+        await createNotification({
+          userId: checklist.managerName,
+          type: "validation_required",
+          checklistId: updated.checklistId,
+          submissionId,
+          message: "A checklist was submitted for validation",
+        });
+      }
+      await notifyRole({
+        role: ROLE_MANAGER,
+        type: checklist?.validateChecklist ? "validation_required" : "submission_received",
+        checklistId: updated.checklistId,
+        submissionId,
+        message: checklist?.validateChecklist
+          ? "A checklist was submitted and needs validation"
+          : "A checklist submission was received",
+      });
+    }
+
     console.log(`Submission updated: ${submissionId} (status: ${updated.status})`);
     return c.json({ success: true, submission: updated });
   } catch (error) {
@@ -487,12 +613,52 @@ app.put("/submissions/:id/validate", async (c) => {
     await kv.set(`submission:${submissionId}`, updated);
     await kv.set(`submission_meta:${submissionId}`, submissionMeta(updated));
 
+    // On rejection, create (or refresh) a new pending assignment so operator can redo.
+    let reworkAssignmentId: string | null = null;
+    if (status === "rejected") {
+      let assignee = submission.submittedBy;
+      if (submission.assignmentId) {
+        const originalAssignment = parseKvValue(await kv.get(`assignment:${submission.assignmentId}`));
+        if (originalAssignment?.assignedTo) assignee = originalAssignment.assignedTo;
+      }
+      const reworkAssignment = await createAssignment(submission.checklistId, assignee, GUEST_USER.id);
+      reworkAssignmentId = reworkAssignment.id;
+      await kv.set(`assignment:${reworkAssignment.id}`, {
+        ...reworkAssignment,
+        status: "pending",
+        reworkRequired: true,
+        reworkFromSubmissionId: submissionId,
+        rejectionComments: comments || "",
+        rejectedAt: Date.now(),
+      });
+    }
+
     await createNotification({
       userId: submission.submittedBy,
       type: status === "validated" ? "submission_validated" : "submission_rejected",
       checklistId: submission.checklistId,
       submissionId,
       message: `Your submission has been ${status}`,
+    });
+    await notifyRole({
+      role: ROLE_USER,
+      type: status === "validated" ? "submission_validated" : "submission_rejected",
+      checklistId: submission.checklistId,
+      submissionId,
+      assignmentId: reworkAssignmentId || undefined,
+      message: status === "validated"
+        ? "Your checklist was approved by manager"
+        : "Your checklist was rejected and must be redone",
+    });
+    await notifyRole({
+      role: ROLE_MANAGER,
+      type: status === "validated" ? "submission_validated" : "submission_rejected",
+      checklistId: submission.checklistId,
+      submissionId,
+      assignmentId: reworkAssignmentId || undefined,
+      message: status === "validated"
+        ? "You approved a checklist submission"
+        : "You rejected a checklist submission and rework was assigned",
     });
 
     console.log(`Submission ${status}: ${submissionId}`);
@@ -553,6 +719,7 @@ app.get("/submissions/:id", async (c) => {
 app.get("/notifications", async (c) => {
   try {
     const unreadOnly = c.req.query("unread") === "true";
+    const userId = c.req.query("userId");
     const raw = await kv.getByPrefix("notification:");
     const safeRaw = Array.isArray(raw) ? raw : [];
     const notifications = safeRaw
@@ -560,6 +727,7 @@ app.get("/notifications", async (c) => {
       .filter((n: any) => {
         // Skip index keys (string values) — keep only notification objects
         if (!n || typeof n !== "object" || !n.userId) return false;
+        if (userId && n.userId !== userId) return false;
         if (unreadOnly && n.read) return false;
         return true;
       })
@@ -640,6 +808,18 @@ app.post("/tags", async (c) => {
 
     await kv.set(`tag:${tagId}`, tag);
     await kv.set(`tag_meta:${tagId}`, tagMeta(tag));
+    await notifyRole({
+      role: ROLE_USER,
+      type: "tag_created",
+      checklistId,
+      message: "A new tag was declared",
+    });
+    await notifyRole({
+      role: ROLE_MANAGER,
+      type: "tag_created",
+      checklistId,
+      message: "A new tag was declared",
+    });
     console.log(`Tag declared: ${tagId} (${tagType} / ${criticality}) on checklist ${checklistId}`);
     return c.json({ success: true, tag });
   } catch (error) {
@@ -699,6 +879,18 @@ app.put("/tags/:id/status", async (c) => {
     const updated = { ...tag, status, updatedAt: Date.now(), updatedBy: GUEST_USER.id };
     await kv.set(`tag:${tagId}`, updated);
     await kv.set(`tag_meta:${tagId}`, tagMeta(updated));
+    await notifyRole({
+      role: ROLE_USER,
+      type: "tag_status_updated",
+      checklistId: updated.checklistId,
+      message: `A tag status changed to ${status}`,
+    });
+    await notifyRole({
+      role: ROLE_MANAGER,
+      type: "tag_status_updated",
+      checklistId: updated.checklistId,
+      message: `A tag status changed to ${status}`,
+    });
     console.log(`Tag ${tagId} status updated to ${status}`);
     return c.json({ success: true, tag: updated });
   } catch (error) {
@@ -750,6 +942,18 @@ app.post("/immediate-actions", async (c) => {
 
     await kv.set(`immediate_action:${actionId}`, action);
     await kv.set(`immediate_action_meta:${actionId}`, immediateActionMeta(action));
+    await notifyRole({
+      role: ROLE_USER,
+      type: "immediate_action_created",
+      checklistId,
+      message: "An immediate action was logged",
+    });
+    await notifyRole({
+      role: ROLE_MANAGER,
+      type: "immediate_action_created",
+      checklistId,
+      message: "An immediate action was logged",
+    });
     console.log(`Immediate action created: ${actionId} (${category}) on checklist ${checklistId}`);
     return c.json({ success: true, action });
   } catch (error) {
@@ -807,6 +1011,18 @@ app.put("/immediate-actions/:id/status", async (c) => {
     const updated = { ...action, status, updatedAt: Date.now(), updatedBy: GUEST_USER.id };
     await kv.set(`immediate_action:${actionId}`, updated);
     await kv.set(`immediate_action_meta:${actionId}`, immediateActionMeta(updated));
+    await notifyRole({
+      role: ROLE_USER,
+      type: "immediate_action_status_updated",
+      checklistId: updated.checklistId,
+      message: `An immediate action status changed to ${status}`,
+    });
+    await notifyRole({
+      role: ROLE_MANAGER,
+      type: "immediate_action_status_updated",
+      checklistId: updated.checklistId,
+      message: `An immediate action status changed to ${status}`,
+    });
     console.log(`Immediate action ${actionId} status updated to ${status}`);
     return c.json({ success: true, action: updated });
   } catch (error) {
@@ -841,6 +1057,20 @@ app.post("/closure-events", async (c) => {
     };
     await kv.set(`closure_event:${id}`, record);
     await kv.set(`closure_event_meta:${id}`, { id, checklistId, title, status: record.status, createdAt: record.createdAt });
+    await notifyRole({
+      role: ROLE_USER,
+      type: "closure_event_created",
+      checklistId,
+      submissionId: submissionId || undefined,
+      message: "A closure event was created",
+    });
+    await notifyRole({
+      role: ROLE_MANAGER,
+      type: "closure_event_created",
+      checklistId,
+      submissionId: submissionId || undefined,
+      message: "A closure event was created",
+    });
     console.log(`Closure event created: ${id} on checklist ${checklistId}`);
     return c.json({ success: true, closureEvent: record });
   } catch (error) {
@@ -876,6 +1106,20 @@ app.post("/action-items", async (c) => {
     };
     await kv.set(`action_item:${id}`, record);
     await kv.set(`action_item_meta:${id}`, { id, checklistId, title, priority: record.priority, status: record.status, createdAt: record.createdAt });
+    await notifyRole({
+      role: ROLE_USER,
+      type: "action_item_created",
+      checklistId,
+      submissionId: submissionId || undefined,
+      message: "A follow-up action item was created",
+    });
+    await notifyRole({
+      role: ROLE_MANAGER,
+      type: "action_item_created",
+      checklistId,
+      submissionId: submissionId || undefined,
+      message: "A follow-up action item was created",
+    });
     console.log(`Action item created: ${id} on checklist ${checklistId}`);
     return c.json({ success: true, actionItem: record });
   } catch (error) {
@@ -921,6 +1165,20 @@ app.post("/risk-assessments", async (c) => {
     };
     await kv.set(`risk_assessment:${id}`, record);
     await kv.set(`risk_assessment_meta:${id}`, { id, checklistId, description, riskLevel, status: record.status, createdAt: record.createdAt });
+    await notifyRole({
+      role: ROLE_USER,
+      type: "risk_assessment_created",
+      checklistId,
+      submissionId: submissionId || undefined,
+      message: `A ${riskLevel} risk assessment was created`,
+    });
+    await notifyRole({
+      role: ROLE_MANAGER,
+      type: "risk_assessment_created",
+      checklistId,
+      submissionId: submissionId || undefined,
+      message: `A ${riskLevel} risk assessment was created`,
+    });
     console.log(`Risk assessment created: ${id} (${riskLevel}) on checklist ${checklistId}`);
     return c.json({ success: true, riskAssessment: record });
   } catch (error) {
