@@ -6,7 +6,7 @@
 
 | Version | Revision Date | Description of Change | Author |
 |---------|--------------|----------------------|--------|
-| 1.0.0 | 19/03/2026 | Initial document version | eCheck Product Team |
+| 1.0.0 | 19/03/2026 | Initial document version | Tété Danklou |
 
 ---
 
