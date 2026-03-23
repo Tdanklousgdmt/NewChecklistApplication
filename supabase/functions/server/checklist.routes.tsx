@@ -387,6 +387,31 @@ function submissionMeta(s: Record<string, any>) {
   return meta;
 }
 
+function countAnsweredFields(answers: unknown): number {
+  if (!Array.isArray(answers)) return 0;
+  return answers.filter((a: any) => {
+    const v = a?.value;
+    if (v === null || v === undefined || v === "") return false;
+    if (v === false && a?.questionId) return false;
+    return true;
+  }).length;
+}
+
+/** Persist full submission + meta row (title + answered count for list UIs; meta never stores answers). */
+async function persistSubmission(full: Record<string, any>) {
+  const cid = full.checklistId;
+  let checklistTitle: string | null = null;
+  if (cid) {
+    const ch = parseKvValue(await kv.get(`checklist_meta:${cid}`));
+    const t = ch?.title;
+    checklistTitle = typeof t === "string" && t.trim() ? t.trim() : null;
+  }
+  const answeredFieldCount = countAnsweredFields(full.answers);
+  const meta = { ...submissionMeta(full), checklistTitle, answeredFieldCount };
+  await kv.set(`submission:${full.id}`, full);
+  await kv.set(`submission_meta:${full.id}`, meta);
+}
+
 /** POST /submissions — submit a completed checklist */
 app.post("/submissions", async (c) => {
   try {
@@ -409,9 +434,7 @@ app.post("/submissions", async (c) => {
       attachments: [],
       signature: null,
     };
-    // Store full record (with answers) and a lightweight meta record (without answers)
-    await kv.set(`submission:${submissionId}`, submission);
-    await kv.set(`submission_meta:${submissionId}`, submissionMeta(submission));
+    await persistSubmission(submission);
 
     // Mark the linked assignment as completed
     if (assignmentId) {
@@ -461,8 +484,7 @@ app.put("/submissions/:id", async (c) => {
       id: submissionId,
       updatedAt: Date.now(),
     };
-    await kv.set(`submission:${submissionId}`, updated);
-    await kv.set(`submission_meta:${submissionId}`, submissionMeta(updated));
+    await persistSubmission(updated);
     console.log(`Submission updated: ${submissionId} (status: ${updated.status})`);
     return c.json({ success: true, submission: updated });
   } catch (error) {
@@ -486,8 +508,7 @@ app.put("/submissions/:id/validate", async (c) => {
       validatedAt: Date.now(),
       validationComments: comments,
     };
-    await kv.set(`submission:${submissionId}`, updated);
-    await kv.set(`submission_meta:${submissionId}`, submissionMeta(updated));
+    await persistSubmission(updated);
 
     const commentText = typeof comments === "string" ? comments.trim() : "";
     const message =

@@ -222,16 +222,25 @@ export const checklistService = {
 
   // ── Draft Submissions ──────────────────────────────────────────────────────
 
-  /** Find an existing draft submission for a checklist (+optional assignment). */
+  /**
+   * Find the best draft for this checklist. Prefers drafts for the given assignment;
+   * if none, falls back to unassigned drafts, then any draft for the checklist.
+   */
   async getDraftSubmission(checklistId: string, assignmentId?: string | null): Promise<any | null> {
     try {
       const params = new URLSearchParams({ checklistId, status: 'draft' });
-      if (assignmentId) params.set('assignmentId', assignmentId);
       const response = await apiFetch(`/submissions?${params.toString()}`, { method: 'GET' });
-      // Return the most-recently-updated draft
       const drafts: any[] = response.submissions || [];
       if (drafts.length === 0) return null;
-      return drafts.sort((a, b) => (b.updatedAt || b.submittedAt) - (a.updatedAt || a.submittedAt))[0];
+      const sorted = drafts.sort(
+        (a, b) => (b.updatedAt || b.submittedAt || 0) - (a.updatedAt || a.submittedAt || 0),
+      );
+      if (!assignmentId) return sorted[0];
+      const forAssignment = sorted.filter((d) => d.assignmentId === assignmentId);
+      if (forAssignment.length > 0) return forAssignment[0];
+      const unassigned = sorted.filter((d) => d.assignmentId == null || d.assignmentId === '');
+      if (unassigned.length > 0) return unassigned[0];
+      return sorted[0];
     } catch (err) {
       console.error('Error fetching draft submission:', err);
       return null;

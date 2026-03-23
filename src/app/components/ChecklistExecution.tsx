@@ -22,6 +22,8 @@ interface ChecklistExecutionProps {
   assignmentId?: string;
   /** When opening from a notification or explicit redo, load this rejected submission for answers + manager comment. */
   redoFromSubmissionId?: string;
+  /** When resuming from In Progress, load this draft submission by id (answers always restored). */
+  resumeFromSubmissionId?: string;
   onBack: () => void;
   onSubmitted?: () => void;
   onOpenNav?: () => void;
@@ -712,7 +714,15 @@ function answersMapFromSubmission(sub: any): Record<string, any> | null {
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export function ChecklistExecution({ checklistId, assignmentId, redoFromSubmissionId, onBack, onSubmitted, onOpenNav }: ChecklistExecutionProps) {
+export function ChecklistExecution({
+  checklistId,
+  assignmentId,
+  redoFromSubmissionId,
+  resumeFromSubmissionId,
+  onBack,
+  onSubmitted,
+  onOpenNav,
+}: ChecklistExecutionProps) {
   const [loading, setLoading]       = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [checklist, setChecklist]   = useState<any>(null);
@@ -757,90 +767,114 @@ export function ChecklistExecution({ checklistId, assignmentId, redoFromSubmissi
   // Track previously-firing trigger IDs per field (to avoid re-firing one-time impacts)
   const prevFiredRef = useRef<Record<string, Set<string>>>({});
 
-  useEffect(() => { loadChecklist(); }, [checklistId, assignmentId, redoFromSubmissionId]);
+  useEffect(() => { loadChecklist(); }, [checklistId, assignmentId, redoFromSubmissionId, resumeFromSubmissionId]);
 
   const loadChecklist = async () => {
     try {
-      const [checklistData, draftRow] = await Promise.all([
-        checklistService.getChecklist(checklistId),
-        checklistService.getDraftSubmission(checklistId, assignmentId),
-      ]);
+      const checklistData = await checklistService.getChecklist(checklistId);
+      if (!checklistData) {
+        setLoading(false);
+        return;
+      }
 
-      if (checklistData) {
-        const rawChecklist = checklistData.data;
-        const layoutFields = pickCanvasFields(rawChecklist);
-        setChecklist({ ...rawChecklist, canvasFields: layoutFields });
+      const rawChecklist = checklistData.data;
+      const layoutFields = pickCanvasFields(rawChecklist);
+      setChecklist({ ...rawChecklist, canvasFields: layoutFields });
 
-        // Build defaults from field definitions — flatten section children too
-        const defaults: Record<string, any> = {};
-        const flattenForDefaults = (flds: any[]): any[] =>
-          flds.flatMap((f: any) =>
-            f.typeId === "section" ? (f.children || []) : [f]
-          );
-        for (const f of flattenForDefaults(layoutFields)) {
-          if (f.typeId === "yes_no") defaults[f.uid] = { value: null };
-          if (f.typeId === "checkbox") defaults[f.uid] = { value: false };
-          if (f.typeId === "custom_buttons" && f.customButtons) {
-            const def = f.customButtons.find((b: any) => b.isDefault);
-            if (def) defaults[f.uid] = { value: def.id, label: def.label, score: typeof def.score === "number" ? def.score : 0 };
-          }
-          if (f.typeId === "rating") defaults[f.uid] = { value: 0, score: 0 };
-          if (f.typeId === "datetime" && f.defaultToNow) defaults[f.uid] = { value: new Date().toISOString().slice(0, 16) };
-          if (f.typeId === "date"     && f.defaultToNow) defaults[f.uid] = { value: new Date().toISOString().slice(0, 10) };
-          if (f.typeId === "time"     && f.defaultToNow) defaults[f.uid] = { value: new Date().toTimeString().slice(0, 5) };
+      const defaults: Record<string, any> = {};
+      const flattenForDefaults = (flds: any[]): any[] =>
+        flds.flatMap((f: any) =>
+          f.typeId === "section" ? (f.children || []) : [f]
+        );
+      for (const f of flattenForDefaults(layoutFields)) {
+        if (f.typeId === "yes_no") defaults[f.uid] = { value: null };
+        if (f.typeId === "checkbox") defaults[f.uid] = { value: false };
+        if (f.typeId === "custom_buttons" && f.customButtons) {
+          const def = f.customButtons.find((b: any) => b.isDefault);
+          if (def) defaults[f.uid] = { value: def.id, label: def.label, score: typeof def.score === "number" ? def.score : 0 };
         }
+        if (f.typeId === "rating") defaults[f.uid] = { value: 0, score: 0 };
+        if (f.typeId === "datetime" && f.defaultToNow) defaults[f.uid] = { value: new Date().toISOString().slice(0, 16) };
+        if (f.typeId === "date"     && f.defaultToNow) defaults[f.uid] = { value: new Date().toISOString().slice(0, 10) };
+        if (f.typeId === "time"     && f.defaultToNow) defaults[f.uid] = { value: new Date().toTimeString().slice(0, 5) };
+      }
 
-        // List/meta APIs omit `answers` — hydrate draft row so Resume / restore works.
-        let existingDraft = draftRow;
-        if (existingDraft?.id && (!Array.isArray(existingDraft.answers) || existingDraft.answers.length === 0)) {
-          const fullDraft = await checklistService.getSubmission(existingDraft.id);
-          if (fullDraft && String(fullDraft.status ?? "").toLowerCase() === "draft") {
-            existingDraft = fullDraft;
-          }
-        }
-
-        let redoSub: any = null;
-        if (redoFromSubmissionId) {
-          const sub = await checklistService.getSubmission(redoFromSubmissionId);
-          if (!sub) {
-            toast.error("Could not load that returned submission. Open it from the Returned tab or your notifications.");
-          } else if (!isSubmissionRejected(sub)) {
-            toast.error("That submission is not marked as returned anymore.");
-          } else if (!sameChecklistId(sub.checklistId, checklistId)) {
-            toast.error("That submission belongs to a different checklist.");
-          } else {
-            redoSub = sub;
-          }
-        } else if (assignmentId) {
-          const asn = await checklistService.getAssignment(assignmentId);
-          if (asn?.submissionId) {
-            const sub = await checklistService.getSubmission(asn.submissionId);
-            if (sub && isSubmissionRejected(sub) && sameChecklistId(sub.checklistId, checklistId)) {
-              redoSub = sub;
-            }
-          }
-        }
-
-        if (redoSub) {
+      // 1) Resume explicit draft row from dashboard (always load full submission by id)
+      if (resumeFromSubmissionId) {
+        const sub = await checklistService.getSubmission(resumeFromSubmissionId);
+        if (!sub) {
+          toast.error("Could not load that draft. Return to the dashboard and try again.");
+        } else if (String(sub.status ?? "").toLowerCase() !== "draft") {
+          toast.error("That item is not a draft anymore.");
+        } else if (!sameChecklistId(sub.checklistId, checklistId)) {
+          toast.error("That draft belongs to a different checklist.");
+        } else {
           const merged: Record<string, any> = { ...defaults };
-          const fromSub = answersMapFromSubmission(redoSub);
+          const fromSub = answersMapFromSubmission(sub);
           if (fromSub) Object.assign(merged, fromSub);
           setAnswers(merged);
-          setDraftId(null);
-          setManagerFeedback(String(redoSub.validationComments || "").trim() || null);
-          setDraftRestored(false);
+          setDraftId(sub.id);
+          setManagerFeedback(null);
+          setDraftRestored(true);
           setShowDraftBanner(false);
           setPendingDraft(null);
-        } else if (existingDraft && Array.isArray(existingDraft.answers) && existingDraft.answers.length > 0) {
-          setDraftId(existingDraft.id);
-          setPendingDraft(existingDraft);
-          setShowDraftBanner(true);
-          setAnswers(defaults);
-          setManagerFeedback(null);
-        } else {
-          setAnswers(defaults);
-          setManagerFeedback(null);
+          setLastSaved(new Date(sub.updatedAt || sub.submittedAt || Date.now()));
+          toast.success("Resumed your saved answers.");
+          setLoading(false);
+          return;
         }
+      }
+
+      const draftRow = await checklistService.getDraftSubmission(checklistId, assignmentId);
+      let existingDraft = draftRow;
+      if (existingDraft?.id && (!Array.isArray(existingDraft.answers) || existingDraft.answers.length === 0)) {
+        const fullDraft = await checklistService.getSubmission(existingDraft.id);
+        if (fullDraft && String(fullDraft.status ?? "").toLowerCase() === "draft") {
+          existingDraft = fullDraft;
+        }
+      }
+
+      let redoSub: any = null;
+      if (redoFromSubmissionId) {
+        const sub = await checklistService.getSubmission(redoFromSubmissionId);
+        if (!sub) {
+          toast.error("Could not load that returned submission. Open it from the Returned tab or your notifications.");
+        } else if (!isSubmissionRejected(sub)) {
+          toast.error("That submission is not marked as returned anymore.");
+        } else if (!sameChecklistId(sub.checklistId, checklistId)) {
+          toast.error("That submission belongs to a different checklist.");
+        } else {
+          redoSub = sub;
+        }
+      } else if (assignmentId) {
+        const asn = await checklistService.getAssignment(assignmentId);
+        if (asn?.submissionId) {
+          const sub = await checklistService.getSubmission(asn.submissionId);
+          if (sub && isSubmissionRejected(sub) && sameChecklistId(sub.checklistId, checklistId)) {
+            redoSub = sub;
+          }
+        }
+      }
+
+      if (redoSub) {
+        const merged: Record<string, any> = { ...defaults };
+        const fromSub = answersMapFromSubmission(redoSub);
+        if (fromSub) Object.assign(merged, fromSub);
+        setAnswers(merged);
+        setDraftId(null);
+        setManagerFeedback(String(redoSub.validationComments || "").trim() || null);
+        setDraftRestored(false);
+        setShowDraftBanner(false);
+        setPendingDraft(null);
+      } else if (existingDraft && Array.isArray(existingDraft.answers) && existingDraft.answers.length > 0) {
+        setDraftId(existingDraft.id);
+        setPendingDraft(existingDraft);
+        setShowDraftBanner(true);
+        setAnswers(defaults);
+        setManagerFeedback(null);
+      } else {
+        setAnswers(defaults);
+        setManagerFeedback(null);
       }
     } catch (err) {
       console.error("Error loading checklist:", err);

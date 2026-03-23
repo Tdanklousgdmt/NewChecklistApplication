@@ -35,13 +35,28 @@ import { QRScannerModal } from "./QRScannerModal";
 interface ChecklistDashboardProps {
   role: "user" | "manager";
   onCreateNew: () => void;
-  /** `redoSubmissionId` opens execution with manager feedback and answers from that rejected submission. */
-  onExecuteChecklist?: (checklistId: string, assignmentId?: string, redoSubmissionId?: string) => void;
+  /** `redoSubmissionId` / `resumeDraftId` open execution with the right submission context. */
+  onExecuteChecklist?: (checklistId: string, assignmentId?: string, redoSubmissionId?: string, resumeDraftId?: string) => void;
   onViewChecklist?: (checklistId: string) => void;
   onValidateSubmission?: (submissionId: string) => void;
   onOpenLibrary?: () => void;
   onOpenNav?: () => void;
   onOpenReports?: () => void;
+}
+
+function submissionChecklistTitle(sub: { checklistTitle?: string | null }) {
+  const t = typeof sub.checklistTitle === "string" ? sub.checklistTitle.trim() : "";
+  return t || "Checklist";
+}
+
+function draftAnsweredCount(sub: { answeredFieldCount?: number; answers?: any[] }) {
+  if (typeof sub.answeredFieldCount === "number") return sub.answeredFieldCount;
+  if (Array.isArray(sub.answers)) {
+    return sub.answers.filter(
+      (a: any) => a.value !== null && a.value !== undefined && a.value !== "",
+    ).length;
+  }
+  return 0;
 }
 
 function formatFrequency(freq?: string): string {
@@ -701,7 +716,10 @@ export function ChecklistDashboardReal({
                           key={s.id}
                           className="bg-orange-50/70 rounded-xl border border-orange-100 p-4 sm:p-5"
                         >
-                          <p className="text-xs text-orange-800 font-semibold uppercase tracking-wide">Needs correction</p>
+                          <h3 className="text-base font-semibold text-gray-900 leading-snug">
+                            {submissionChecklistTitle(s)}
+                          </h3>
+                          <p className="text-xs text-orange-800 font-semibold uppercase tracking-wide mt-2">Needs correction</p>
                           {s.validationComments ? (
                             <p className="text-sm text-gray-900 mt-2 whitespace-pre-wrap leading-relaxed">
                               {s.validationComments}
@@ -715,7 +733,7 @@ export function ChecklistDashboardReal({
                           <button
                             type="button"
                             onClick={() =>
-                              onExecuteChecklist?.(s.checklistId, s.assignmentId ?? undefined, s.id)
+                              onExecuteChecklist?.(s.checklistId, s.assignmentId ?? undefined, s.id, undefined)
                             }
                             className="mt-4 flex items-center justify-center gap-2 w-full sm:w-auto px-4 py-2.5 bg-[#2abaad] text-white rounded-xl text-sm font-medium hover:bg-[#24a699] transition-colors"
                           >
@@ -855,9 +873,7 @@ export function ChecklistDashboardReal({
                           </p>
                         </div>
                         {draftSubmissions.map((sub: any) => {
-                          const answeredCount = Array.isArray(sub.answers)
-                            ? sub.answers.filter((a: any) => a.value !== null && a.value !== undefined && a.value !== "").length
-                            : 0;
+                          const answeredCount = draftAnsweredCount(sub);
                           const savedAt = new Date(sub.updatedAt || sub.submittedAt);
                           const mins = Math.floor((Date.now() - savedAt.getTime()) / 60000);
                           const savedLabel = mins < 1 ? "just now" : mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.floor(mins / 60)}h ago` : savedAt.toLocaleDateString();
@@ -872,7 +888,7 @@ export function ChecklistDashboardReal({
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 flex-wrap mb-0.5">
                                     <p className="text-sm font-semibold text-gray-800 truncate">
-                                      {sub.checklistId ? `Checklist · ${sub.checklistId.slice(-8)}` : "Draft"}
+                                      {submissionChecklistTitle(sub)}
                                     </p>
                                     <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-full uppercase tracking-wide">Draft</span>
                                   </div>
@@ -884,7 +900,9 @@ export function ChecklistDashboardReal({
                                 </div>
                                 <button
                                   type="button"
-                                  onClick={() => onExecuteChecklist?.(sub.checklistId, sub.assignmentId || undefined)}
+                                  onClick={() =>
+                                    onExecuteChecklist?.(sub.checklistId, sub.assignmentId || undefined, undefined, sub.id)
+                                  }
                                   className="shrink-0 flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs sm:text-sm font-semibold transition-all"
                                 >
                                   <RotateCcw className="w-3.5 h-3.5" />

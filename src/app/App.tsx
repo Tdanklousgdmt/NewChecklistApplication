@@ -22,6 +22,7 @@ export default function App() {
   const [activeChecklistId, setActiveChecklistId] = useState<string | null>(null);
   const [activeAssignmentId, setActiveAssignmentId] = useState<string | null>(null);
   const [activeRedoSubmissionId, setActiveRedoSubmissionId] = useState<string | null>(null);
+  const [activeResumeSubmissionId, setActiveResumeSubmissionId] = useState<string | null>(null);
   const [activeSubmissionId, setActiveSubmissionId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -39,6 +40,7 @@ export default function App() {
       setActiveChecklistId(clId);
       setActiveAssignmentId(null);
       setActiveRedoSubmissionId(null);
+      setActiveResumeSubmissionId(null);
       setView("execute");
     }
   }, []);
@@ -63,6 +65,7 @@ export default function App() {
     setActiveChecklistId(null);
     setActiveAssignmentId(null);
     setActiveRedoSubmissionId(null);
+    setActiveResumeSubmissionId(null);
     setActiveSubmissionId(null);
     setView(dest === "create" ? "create" : dest);
   };
@@ -78,6 +81,7 @@ export default function App() {
     setActiveChecklistId(checklistId);
     setActiveAssignmentId(null);
     setActiveRedoSubmissionId(null);
+    setActiveResumeSubmissionId(null);
     setView("execute");
   };
 
@@ -107,8 +111,21 @@ export default function App() {
           checklistId={activeChecklistId}
           assignmentId={activeAssignmentId || undefined}
           redoFromSubmissionId={activeRedoSubmissionId || undefined}
-          onBack={() => { setView("dashboard"); setActiveChecklistId(null); setActiveAssignmentId(null); setActiveRedoSubmissionId(null); }}
-          onSubmitted={() => { setView("dashboard"); setActiveChecklistId(null); setActiveAssignmentId(null); setActiveRedoSubmissionId(null); }}
+          resumeFromSubmissionId={activeResumeSubmissionId || undefined}
+          onBack={() => {
+            setView("dashboard");
+            setActiveChecklistId(null);
+            setActiveAssignmentId(null);
+            setActiveRedoSubmissionId(null);
+            setActiveResumeSubmissionId(null);
+          }}
+          onSubmitted={() => {
+            setView("dashboard");
+            setActiveChecklistId(null);
+            setActiveAssignmentId(null);
+            setActiveRedoSubmissionId(null);
+            setActiveResumeSubmissionId(null);
+          }}
           onOpenNav={openNav}
         />
         <Toaster position="top-right" richColors />
@@ -199,10 +216,11 @@ export default function App() {
       <ChecklistDashboardReal
         role={role}
         onCreateNew={() => setView("create")}
-        onExecuteChecklist={(checklistId, assignmentId, redoSubmissionId) => {
+        onExecuteChecklist={(checklistId, assignmentId, redoSubmissionId, resumeDraftId) => {
           setActiveChecklistId(checklistId);
           setActiveAssignmentId(assignmentId ?? null);
           setActiveRedoSubmissionId(redoSubmissionId ?? null);
+          setActiveResumeSubmissionId(resumeDraftId ?? null);
           setView("execute");
         }}
         onViewChecklist={(checklistId) => { setActiveChecklistId(checklistId); setView("view"); }}
