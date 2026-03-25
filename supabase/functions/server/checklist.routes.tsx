@@ -1,10 +1,11 @@
 import { Hono } from "npm:hono";
 import * as kv from "./kv_store.tsx";
+import { tenantKey } from "./context.tsx";
+import { authMiddleware, requireOnboardedMiddleware, type Variables } from "./middleware.tsx";
 
-const app = new Hono();
-
-// ── Guest identity (no auth required) ────────────────────────────────────────
-const GUEST_USER = { id: "guest", email: "guest@local" };
+const app = new Hono<{ Variables: Variables }>();
+app.use("*", authMiddleware);
+app.use("*", requireOnboardedMiddleware);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
@@ -47,6 +48,7 @@ async function getByPrefixWithRetry(prefix: string, retries = 2, delayMs = 150):
 }
 
 async function createAssignment(
+  tenantId: string,
   checklistId: string,
   assignedTo: string,
   assignedBy: string,
@@ -63,8 +65,8 @@ async function createAssignment(
     completedAt: null,
     submissionId: null,
   };
-  await kv.set(`assignment:${assignmentId}`, assignment);
-  await createNotification({
+  await kv.set(tenantKey("assignment", tenantId, assignmentId), assignment);
+  await createNotification(tenantId, {
     userId: assignedTo,
     type: "assignment",
     checklistId,
@@ -75,16 +77,19 @@ async function createAssignment(
   return assignment;
 }
 
-async function createNotification(params: {
-  userId: string;
-  type: string;
-  checklistId?: string;
-  assignmentId?: string;
-  submissionId?: string;
-  message: string;
-  /** Full manager comment for checklist rejections (shown in notification UI + redo flow). */
-  validationComments?: string;
-}) {
+async function createNotification(
+  tenantId: string,
+  params: {
+    userId: string;
+    type: string;
+    checklistId?: string;
+    assignmentId?: string;
+    submissionId?: string;
+    message: string;
+    /** Full manager comment for checklist rejections (shown in notification UI + redo flow). */
+    validationComments?: string;
+  },
+) {
   const notificationId = `notification_${Date.now()}_${crypto.randomUUID()}`;
   const notification = {
     id: notificationId,
@@ -92,7 +97,7 @@ async function createNotification(params: {
     createdAt: Date.now(),
     read: false,
   };
-  await kv.set(`notification:${notificationId}`, notification);
+  await kv.set(tenantKey("notification", tenantId, notificationId), notification);
   console.log(`Notification created: ${notificationId} for user ${params.userId}`);
   return notification;
 }
@@ -110,9 +115,57 @@ function checklistMeta(ch: Record<string, any>) {
   return meta;
 }
 
+type Ctx = import("./context.tsx").RequestContext;
+
+async function getChecklistForTenant(ctx: Ctx, checklistId: string): Promise<Record<string, any> | null> {
+  return parseKvValue(await kv.get(tenantKey("checklist", ctx.tenantId, checklistId)));
+}
+
+async function userHasAssignmentToChecklist(ctx: Ctx, checklistId: string): Promise<boolean> {
+  const raw = await kv.getByPrefix(`assignment:${ctx.tenantId}:`);
+  const list = Array.isArray(raw) ? raw : [];
+  return list
+    .map(parseKvValue)
+    .some((a: any) => a && a.checklistId === checklistId && a.assignedTo === ctx.userId);
+}
+
+async function userHasSubmissionForChecklist(ctx: Ctx, checklistId: string): Promise<boolean> {
+  const metaRaw = await getByPrefixWithRetry(`submission_meta:${ctx.tenantId}:`);
+  return metaRaw
+    .map(parseKvValue)
+    .some((s: any) => s && s.checklistId === checklistId && s.submittedBy === ctx.userId);
+}
+
+/** Manager: full tenant access. User: assigned checklist, draft owner, or prior work on checklist. */
+async function assertChecklistReadable(ctx: Ctx, checklistId: string): Promise<Record<string, any> | null> {
+  const checklist = await getChecklistForTenant(ctx, checklistId);
+  if (!checklist) return null;
+  if (ctx.appRole === "manager") return checklist;
+  if (checklist.createdBy === ctx.userId) return checklist;
+  if (checklist.assignedTo === ctx.userId) return checklist;
+  if (await userHasAssignmentToChecklist(ctx, checklistId)) return checklist;
+  if (await userHasSubmissionForChecklist(ctx, checklistId)) return checklist;
+  return null;
+}
+
+/** Operators only see rows tied to checklists they may access. */
+async function filterByReadableChecklists(ctx: Ctx, rows: any[], checklistIdKey = "checklistId"): Promise<any[]> {
+  if (ctx.appRole === "manager") return rows;
+  const ids = [...new Set(rows.map((r) => r[checklistIdKey]).filter(Boolean))];
+  const allowed = new Set<string>();
+  for (const id of ids) {
+    if (await assertChecklistReadable(ctx, id)) allowed.add(id);
+  }
+  return rows.filter((r) => r[checklistIdKey] && allowed.has(r[checklistIdKey]));
+}
+
 /** POST /checklists — create a new checklist draft */
 app.post("/checklists", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
+    if (ctx.appRole !== "manager") {
+      return c.json({ error: "Only managers can create checklists" }, 403);
+    }
     const body = await c.req.json();
     const checklistId = body.id || `checklist_${Date.now()}_${crypto.randomUUID()}`;
 
@@ -122,7 +175,7 @@ app.post("/checklists", async (c) => {
     const incomingFrequency = (body.frequency || "").trim().toUpperCase();
 
     if (incomingTitle && incomingFrequency && !body.bypassDuplicateCheck) {
-      const allRaw    = await getByPrefixWithRetry("checklist_meta:");
+      const allRaw    = await getByPrefixWithRetry(`checklist_meta:${ctx.tenantId}:`);
       const allLists  = allRaw.map(parseKvValue).filter((ch: any) => ch && ch.id && ch.id !== checklistId);
       const duplicate = allLists.find((ch: any) =>
         (ch.title || "").trim().toLowerCase() === incomingTitle &&
@@ -144,15 +197,15 @@ app.post("/checklists", async (c) => {
     const checklist = {
       ...safeBody,
       id: checklistId,
-      createdBy: GUEST_USER.id,
-      createdByEmail: GUEST_USER.email,
+      createdBy: ctx.userId,
+      createdByEmail: ctx.email,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       version: 1,
       status: safeBody.status || "draft",
     };
-    await kv.set(`checklist:${checklistId}`, checklist);
-    await kv.set(`checklist_meta:${checklistId}`, checklistMeta(checklist));
+    await kv.set(tenantKey("checklist", ctx.tenantId, checklistId), checklist);
+    await kv.set(tenantKey("checklist_meta", ctx.tenantId, checklistId), checklistMeta(checklist));
     console.log(`Checklist created: ${checklistId}`);
     return c.json({ success: true, checklist });
   } catch (error) {
@@ -164,14 +217,18 @@ app.post("/checklists", async (c) => {
 /** GET /checklists — list all checklists (optionally filtered by status) */
 app.get("/checklists", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
     const status = c.req.query("status");
     const createdBy = c.req.query("createdBy");
+    if (createdBy && ctx.appRole !== "manager") {
+      return c.json({ error: "Forbidden" }, 403);
+    }
 
     // Use lightweight meta prefix only — never includes fields/base64 blobs.
     // A single query avoids the statement timeout caused by scanning full records.
-    const metaRaw = await getByPrefixWithRetry("checklist_meta:");
+    const metaRaw = await getByPrefixWithRetry(`checklist_meta:${ctx.tenantId}:`);
 
-    const checklists = metaRaw
+    let checklists = metaRaw
       .map(parseKvValue)
       .filter(Boolean)
       .filter((ch: any) => {
@@ -179,7 +236,21 @@ app.get("/checklists", async (c) => {
         if (status && ch.status !== status) return false;
         if (createdBy && ch.createdBy !== createdBy) return false;
         return true;
-      })
+      });
+
+    if (ctx.appRole === "user") {
+      const ids = new Set<string>();
+      const rawAsn = await kv.getByPrefix(`assignment:${ctx.tenantId}:`);
+      for (const a of Array.isArray(rawAsn) ? rawAsn : []) {
+        const x = parseKvValue(a);
+        if (x?.assignedTo === ctx.userId && x?.checklistId) ids.add(x.checklistId);
+      }
+      checklists = checklists.filter((ch: any) =>
+        ch.createdBy === ctx.userId ||
+        ch.assignedTo === ctx.userId ||
+        ids.has(ch.id),
+      );
+    }
       // deduplicate by id (safety net)
       .filter((ch: any, i: number, arr: any[]) => arr.findIndex((x: any) => x.id === ch.id) === i)
       .sort((a: any, b: any) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
@@ -194,8 +265,9 @@ app.get("/checklists", async (c) => {
 /** GET /checklists/:id — get a specific checklist (full record with fields) */
 app.get("/checklists/:id", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
     const checklistId = c.req.param("id");
-    const checklist = parseKvValue(await kv.get(`checklist:${checklistId}`));
+    const checklist = await assertChecklistReadable(ctx, checklistId);
     if (!checklist) return c.json({ error: "Checklist not found" }, 404);
     return c.json({ checklist });
   } catch (error) {
@@ -207,9 +279,13 @@ app.get("/checklists/:id", async (c) => {
 /** PUT /checklists/:id — update a checklist (autosave) */
 app.put("/checklists/:id", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
+    if (ctx.appRole !== "manager") {
+      return c.json({ error: "Only managers can edit checklists" }, 403);
+    }
     const checklistId = c.req.param("id");
     const body        = await c.req.json();
-    const existing    = parseKvValue(await kv.get(`checklist:${checklistId}`));
+    const existing    = parseKvValue(await kv.get(tenantKey("checklist", ctx.tenantId, checklistId)));
 
     if (!existing) return c.json({ error: "Checklist not found" }, 404);
 
@@ -218,7 +294,7 @@ app.put("/checklists/:id", async (c) => {
     const incomingFrequency = (body.frequency || existing.frequency || "").trim().toUpperCase();
 
     if (incomingTitle && incomingFrequency && !body.bypassDuplicateCheck) {
-      const allRaw    = await getByPrefixWithRetry("checklist_meta:");
+      const allRaw    = await getByPrefixWithRetry(`checklist_meta:${ctx.tenantId}:`);
       const others    = allRaw.map(parseKvValue).filter((ch: any) => ch && ch.id && ch.id !== checklistId);
       const duplicate = others.find((ch: any) =>
         (ch.title || "").trim().toLowerCase() === incomingTitle &&
@@ -243,10 +319,10 @@ app.put("/checklists/:id", async (c) => {
       id: checklistId,
       version: existing.version + 1,
       updatedAt: Date.now(),
-      updatedBy: GUEST_USER.id,
+      updatedBy: ctx.userId,
     };
-    await kv.set(`checklist:${checklistId}`, updated);
-    await kv.set(`checklist_meta:${checklistId}`, checklistMeta(updated));
+    await kv.set(tenantKey("checklist", ctx.tenantId, checklistId), updated);
+    await kv.set(tenantKey("checklist_meta", ctx.tenantId, checklistId), checklistMeta(updated));
     console.log(`Checklist updated: ${checklistId} (v${updated.version})`);
     return c.json({ success: true, checklist: updated });
   } catch (error) {
@@ -258,23 +334,28 @@ app.put("/checklists/:id", async (c) => {
 /** POST /checklists/:id/publish — publish a checklist */
 app.post("/checklists/:id/publish", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
+    if (ctx.appRole !== "manager") {
+      return c.json({ error: "Only managers can publish checklists" }, 403);
+    }
     const checklistId = c.req.param("id");
-    const checklist = parseKvValue(await kv.get(`checklist:${checklistId}`));
+    const checklist = parseKvValue(await kv.get(tenantKey("checklist", ctx.tenantId, checklistId)));
     if (!checklist) return c.json({ error: "Checklist not found" }, 404);
 
     const published = {
       ...checklist,
       status: "active",
       publishedAt: Date.now(),
-      publishedBy: GUEST_USER.id,
+      publishedBy: ctx.userId,
+      managerUserId: checklist.managerUserId || ctx.userId,
       version: checklist.version + 1,
       updatedAt: Date.now(),
     };
-    await kv.set(`checklist:${checklistId}`, published);
-    await kv.set(`checklist_meta:${checklistId}`, checklistMeta(published));
+    await kv.set(tenantKey("checklist", ctx.tenantId, checklistId), published);
+    await kv.set(tenantKey("checklist_meta", ctx.tenantId, checklistId), checklistMeta(published));
 
     if (published.assignedTo) {
-      await createAssignment(checklistId, published.assignedTo, GUEST_USER.id);
+      await createAssignment(ctx.tenantId, checklistId, published.assignedTo, ctx.userId);
     }
 
     console.log(`Checklist published: ${checklistId}`);
@@ -288,11 +369,15 @@ app.post("/checklists/:id/publish", async (c) => {
 /** DELETE /checklists/:id — delete a checklist */
 app.delete("/checklists/:id", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
+    if (ctx.appRole !== "manager") {
+      return c.json({ error: "Only managers can delete checklists" }, 403);
+    }
     const checklistId = c.req.param("id");
-    const existing = parseKvValue(await kv.get(`checklist:${checklistId}`));
+    const existing = parseKvValue(await kv.get(tenantKey("checklist", ctx.tenantId, checklistId)));
     if (!existing) return c.json({ error: "Checklist not found" }, 404);
-    await kv.del(`checklist:${checklistId}`);
-    await kv.del(`checklist_meta:${checklistId}`);
+    await kv.del(tenantKey("checklist", ctx.tenantId, checklistId));
+    await kv.del(tenantKey("checklist_meta", ctx.tenantId, checklistId));
     console.log(`Checklist deleted: ${checklistId}`);
     return c.json({ success: true });
   } catch (error) {
@@ -308,17 +393,21 @@ app.delete("/checklists/:id", async (c) => {
 /** POST /assignments — create a new assignment */
 app.post("/assignments", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
+    if (ctx.appRole !== "manager") {
+      return c.json({ error: "Only managers can create assignments" }, 403);
+    }
     const { checklistId, assignedTo, dueDate } = await c.req.json();
     if (!checklistId || !assignedTo) {
       return c.json({ error: "Missing required fields: checklistId, assignedTo" }, 400);
     }
-    const checklistExists = await kv.get(`checklist:${checklistId}`);
+    const checklistExists = await kv.get(tenantKey("checklist", ctx.tenantId, checklistId));
     if (!checklistExists) return c.json({ error: "Checklist not found" }, 404);
 
-    const assignment = await createAssignment(checklistId, assignedTo, GUEST_USER.id);
+    const assignment = await createAssignment(ctx.tenantId, checklistId, assignedTo, ctx.userId);
     if (dueDate) {
       (assignment as any).dueDate = dueDate;
-      await kv.set(`assignment:${assignment.id}`, assignment);
+      await kv.set(tenantKey("assignment", ctx.tenantId, assignment.id), assignment);
     }
     return c.json({ success: true, assignment });
   } catch (error) {
@@ -330,9 +419,10 @@ app.post("/assignments", async (c) => {
 /** GET /assignments — list assignments */
 app.get("/assignments", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
     const status = c.req.query("status");
-    const raw = await kv.getByPrefix("assignment:");
-    const assignments = raw
+    const raw = await kv.getByPrefix(`assignment:${ctx.tenantId}:`);
+    let assignments = (Array.isArray(raw) ? raw : [])
       .map(parseKvValue)
       .filter((a: any) => {
         if (!a || !a.id) return false;
@@ -341,11 +431,17 @@ app.get("/assignments", async (c) => {
       })
       .sort((a: any, b: any) => b.assignedAt - a.assignedAt);
 
+    if (ctx.appRole === "user") {
+      assignments = assignments.filter((a: any) => a.assignedTo === ctx.userId);
+    }
+
     // Enrich with lightweight checklist meta (never fetches fields/base64 blobs)
     const enriched = await Promise.all(
       assignments.map(async (assignment: any) => {
         try {
-          const checklist = parseKvValue(await kv.get(`checklist_meta:${assignment.checklistId}`));
+          const checklist = parseKvValue(
+            await kv.get(tenantKey("checklist_meta", ctx.tenantId, assignment.checklistId)),
+          );
           return { ...assignment, checklist: checklist ?? null };
         } catch {
           return { ...assignment, checklist: null };
@@ -362,10 +458,14 @@ app.get("/assignments", async (c) => {
 /** GET /assignments/:id — get a specific assignment */
 app.get("/assignments/:id", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
     const assignmentId = c.req.param("id");
-    const assignment = parseKvValue(await kv.get(`assignment:${assignmentId}`));
+    const assignment = parseKvValue(await kv.get(tenantKey("assignment", ctx.tenantId, assignmentId)));
     if (!assignment) return c.json({ error: "Assignment not found" }, 404);
-    const checklist = parseKvValue(await kv.get(`checklist:${assignment.checklistId}`));
+    if (ctx.appRole === "user" && assignment.assignedTo !== ctx.userId) {
+      return c.json({ error: "Forbidden" }, 403);
+    }
+    const checklist = parseKvValue(await kv.get(tenantKey("checklist", ctx.tenantId, assignment.checklistId)));
     return c.json({ assignment: { ...assignment, checklist } });
   } catch (error) {
     console.error("Error fetching assignment:", error);
@@ -390,17 +490,39 @@ function submissionMeta(s: Record<string, any>) {
 /** POST /submissions — submit a completed checklist */
 app.post("/submissions", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
     const { checklistId, assignmentId, answers, status } = await c.req.json();
     if (!checklistId || !answers) {
       return c.json({ error: "Missing required fields: checklistId, answers" }, 400);
     }
+    const checklistReadable = await assertChecklistReadable(ctx, checklistId);
+    if (!checklistReadable) {
+      return c.json({ error: "Checklist not found" }, 404);
+    }
+    if (assignmentId) {
+      const asn = parseKvValue(await kv.get(tenantKey("assignment", ctx.tenantId, assignmentId)));
+      if (!asn || asn.checklistId !== checklistId) {
+        return c.json({ error: "Assignment not found" }, 404);
+      }
+      if (asn.assignedTo !== ctx.userId) {
+        return c.json({ error: "This assignment belongs to another user" }, 403);
+      }
+    } else if (ctx.appRole === "user") {
+      const allowed =
+        checklistReadable.assignedTo === ctx.userId ||
+        (await userHasAssignmentToChecklist(ctx, checklistId));
+      if (!allowed) {
+        return c.json({ error: "You need an assignment to submit this checklist" }, 403);
+      }
+    }
+
     const submissionId = `submission_${Date.now()}_${crypto.randomUUID()}`;
     const submission = {
       id: submissionId,
       checklistId,
       assignmentId: assignmentId || null,
-      submittedBy: GUEST_USER.id,
-      submittedByEmail: GUEST_USER.email,
+      submittedBy: ctx.userId,
+      submittedByEmail: ctx.email,
       submittedAt: Date.now(),
       status: status || "submitted",
       answers,
@@ -410,14 +532,14 @@ app.post("/submissions", async (c) => {
       signature: null,
     };
     // Store full record (with answers) and a lightweight meta record (without answers)
-    await kv.set(`submission:${submissionId}`, submission);
-    await kv.set(`submission_meta:${submissionId}`, submissionMeta(submission));
+    await kv.set(tenantKey("submission", ctx.tenantId, submissionId), submission);
+    await kv.set(tenantKey("submission_meta", ctx.tenantId, submissionId), submissionMeta(submission));
 
     // Mark the linked assignment as completed
     if (assignmentId) {
-      const assignment = parseKvValue(await kv.get(`assignment:${assignmentId}`));
+      const assignment = parseKvValue(await kv.get(tenantKey("assignment", ctx.tenantId, assignmentId)));
       if (assignment) {
-        await kv.set(`assignment:${assignmentId}`, {
+        await kv.set(tenantKey("assignment", ctx.tenantId, assignmentId), {
           ...assignment,
           status: "completed",
           completedAt: Date.now(),
@@ -426,16 +548,24 @@ app.post("/submissions", async (c) => {
       }
     }
 
-    // Notify manager if validation is required
-    const checklist = parseKvValue(await kv.get(`checklist:${checklistId}`));
-    if (checklist?.validateChecklist && checklist?.managerName) {
-      await createNotification({
-        userId: checklist.managerName,
-        type: "validation_required",
-        checklistId,
-        submissionId,
-        message: "A checklist was submitted for validation",
-      });
+    // Notify manager if validation is required (managerName may be legacy display string)
+    const checklist = checklistReadable;
+    if (checklist?.validateChecklist) {
+      const managerId =
+        typeof checklist.managerUserId === "string" && checklist.managerUserId
+          ? checklist.managerUserId
+          : typeof checklist.managerName === "string" && checklist.managerName.startsWith("user_")
+            ? checklist.managerName
+            : null;
+      if (managerId) {
+        await createNotification(ctx.tenantId, {
+          userId: managerId,
+          type: "validation_required",
+          checklistId,
+          submissionId,
+          message: "A checklist was submitted for validation",
+        });
+      }
     }
 
     console.log(`Submission created: ${submissionId}`);
@@ -449,10 +579,14 @@ app.post("/submissions", async (c) => {
 /** PUT /submissions/:id — update an existing draft submission */
 app.put("/submissions/:id", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
     const submissionId = c.req.param("id");
     const body = await c.req.json();
-    const submission = parseKvValue(await kv.get(`submission:${submissionId}`));
+    const submission = parseKvValue(await kv.get(tenantKey("submission", ctx.tenantId, submissionId)));
     if (!submission) return c.json({ error: "Submission not found" }, 404);
+    if (submission.submittedBy !== ctx.userId && ctx.appRole !== "manager") {
+      return c.json({ error: "Forbidden" }, 403);
+    }
 
     // Only allow updating draft submissions (or re-validate)
     const updated = {
@@ -461,8 +595,8 @@ app.put("/submissions/:id", async (c) => {
       id: submissionId,
       updatedAt: Date.now(),
     };
-    await kv.set(`submission:${submissionId}`, updated);
-    await kv.set(`submission_meta:${submissionId}`, submissionMeta(updated));
+    await kv.set(tenantKey("submission", ctx.tenantId, submissionId), updated);
+    await kv.set(tenantKey("submission_meta", ctx.tenantId, submissionId), submissionMeta(updated));
     console.log(`Submission updated: ${submissionId} (status: ${updated.status})`);
     return c.json({ success: true, submission: updated });
   } catch (error) {
@@ -474,20 +608,24 @@ app.put("/submissions/:id", async (c) => {
 /** PUT /submissions/:id/validate — manager validates a submission */
 app.put("/submissions/:id/validate", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
+    if (ctx.appRole !== "manager") {
+      return c.json({ error: "Only managers can validate submissions" }, 403);
+    }
     const submissionId = c.req.param("id");
     const { status, comments } = await c.req.json();
-    const submission = parseKvValue(await kv.get(`submission:${submissionId}`));
+    const submission = parseKvValue(await kv.get(tenantKey("submission", ctx.tenantId, submissionId)));
     if (!submission) return c.json({ error: "Submission not found" }, 404);
 
     const updated = {
       ...submission,
       status,
-      validatedBy: GUEST_USER.id,
+      validatedBy: ctx.userId,
       validatedAt: Date.now(),
       validationComments: comments,
     };
-    await kv.set(`submission:${submissionId}`, updated);
-    await kv.set(`submission_meta:${submissionId}`, submissionMeta(updated));
+    await kv.set(tenantKey("submission", ctx.tenantId, submissionId), updated);
+    await kv.set(tenantKey("submission_meta", ctx.tenantId, submissionId), submissionMeta(updated));
 
     const commentText = typeof comments === "string" ? comments.trim() : "";
     const message =
@@ -497,7 +635,7 @@ app.put("/submissions/:id/validate", async (c) => {
           ? "Your checklist was returned for changes. Please review the feedback and resubmit."
           : "Your checklist has been validated.";
 
-    await createNotification({
+    await createNotification(ctx.tenantId, {
       userId: submission.submittedBy,
       type: status === "validated" ? "submission_validated" : "submission_rejected",
       checklistId: submission.checklistId,
@@ -509,9 +647,9 @@ app.put("/submissions/:id/validate", async (c) => {
 
     // Re-open the linked assignment so the operator can redo and resubmit.
     if (status === "rejected" && submission.assignmentId) {
-      const assignment = parseKvValue(await kv.get(`assignment:${submission.assignmentId}`));
+      const assignment = parseKvValue(await kv.get(tenantKey("assignment", ctx.tenantId, submission.assignmentId)));
       if (assignment) {
-        await kv.set(`assignment:${submission.assignmentId}`, {
+        await kv.set(tenantKey("assignment", ctx.tenantId, submission.assignmentId), {
           ...assignment,
           status: "pending",
           completedAt: null,
@@ -530,15 +668,16 @@ app.put("/submissions/:id/validate", async (c) => {
 /** GET /submissions — list submissions (uses meta keys to avoid blob timeouts) */
 app.get("/submissions", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
     const checklistId = c.req.query("checklistId");
     const status = c.req.query("status");
     const assignmentId = c.req.query("assignmentId");
 
     // Use the lightweight meta prefix only — never includes answers/base64 blobs.
     // A single query avoids the statement timeout caused by scanning full records.
-    const metaRaw = await getByPrefixWithRetry("submission_meta:");
+    const metaRaw = await getByPrefixWithRetry(`submission_meta:${ctx.tenantId}:`);
 
-    const submissions = metaRaw
+    let submissions = metaRaw
       .map(parseKvValue)
       .filter(Boolean)
       .filter((s: any) => {
@@ -551,6 +690,10 @@ app.get("/submissions", async (c) => {
       .filter((s: any, i: number, arr: any[]) => arr.findIndex((x: any) => x.id === s.id) === i)
       .sort((a: any, b: any) => (b.submittedAt ?? 0) - (a.submittedAt ?? 0));
 
+    if (ctx.appRole === "user") {
+      submissions = submissions.filter((s: any) => s.submittedBy === ctx.userId);
+    }
+
     return c.json({ submissions, count: submissions.length });
   } catch (error) {
     console.error("Error fetching submissions:", error);
@@ -561,9 +704,13 @@ app.get("/submissions", async (c) => {
 /** GET /submissions/:id — get a specific submission */
 app.get("/submissions/:id", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
     const submissionId = c.req.param("id");
-    const submission = parseKvValue(await kv.get(`submission:${submissionId}`));
+    const submission = parseKvValue(await kv.get(tenantKey("submission", ctx.tenantId, submissionId)));
     if (!submission) return c.json({ error: "Submission not found" }, 404);
+    if (ctx.appRole === "user" && submission.submittedBy !== ctx.userId) {
+      return c.json({ error: "Forbidden" }, 403);
+    }
     return c.json({ submission });
   } catch (error) {
     console.error("Error fetching submission:", error);
@@ -578,11 +725,13 @@ app.get("/submissions/:id", async (c) => {
 /** GET /notifications — list notifications (optional ?userId= to scope recipient) */
 app.get("/notifications", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
     const unreadOnly = c.req.query("unread") === "true";
-    const userIdFilter = c.req.query("userId");
-    const raw = await kv.getByPrefix("notification:");
+    const userIdFilter =
+      ctx.appRole === "manager" ? c.req.query("userId") : ctx.userId;
+    const raw = await kv.getByPrefix(`notification:${ctx.tenantId}:`);
     const safeRaw = Array.isArray(raw) ? raw : [];
-    const notifications = safeRaw
+    let notifications = safeRaw
       .map(parseKvValue)
       .filter((n: any) => {
         // Skip index keys (string values) — keep only notification objects
@@ -592,6 +741,11 @@ app.get("/notifications", async (c) => {
         return true;
       })
       .sort((a: any, b: any) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+
+    if (ctx.appRole === "manager" && !c.req.query("userId")) {
+      notifications = notifications.filter((n: any) => n.userId === ctx.userId);
+    }
+
     return c.json({ notifications, count: notifications.length });
   } catch (error) {
     console.error("Error fetching notifications:", error);
@@ -602,11 +756,13 @@ app.get("/notifications", async (c) => {
 /** PUT /notifications/:id/read — mark notification as read */
 app.put("/notifications/:id/read", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
     const notificationId = c.req.param("id");
-    const notification = parseKvValue(await kv.get(`notification:${notificationId}`));
+    const notification = parseKvValue(await kv.get(tenantKey("notification", ctx.tenantId, notificationId)));
     if (!notification) return c.json({ error: "Notification not found" }, 404);
+    if (notification.userId !== ctx.userId) return c.json({ error: "Forbidden" }, 403);
     const updated = { ...notification, read: true, readAt: Date.now() };
-    await kv.set(`notification:${notificationId}`, updated);
+    await kv.set(tenantKey("notification", ctx.tenantId, notificationId), updated);
     return c.json({ success: true, notification: updated });
   } catch (error) {
     console.error("Error marking notification as read:", error);
@@ -617,10 +773,12 @@ app.put("/notifications/:id/read", async (c) => {
 /** DELETE /notifications/:id — delete a notification */
 app.delete("/notifications/:id", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
     const notificationId = c.req.param("id");
-    const notification = parseKvValue(await kv.get(`notification:${notificationId}`));
+    const notification = parseKvValue(await kv.get(tenantKey("notification", ctx.tenantId, notificationId)));
     if (!notification) return c.json({ error: "Notification not found" }, 404);
-    await kv.del(`notification:${notificationId}`);
+    if (notification.userId !== ctx.userId) return c.json({ error: "Forbidden" }, 403);
+    await kv.del(tenantKey("notification", ctx.tenantId, notificationId));
     return c.json({ success: true });
   } catch (error) {
     console.error("Error deleting notification:", error);
@@ -641,12 +799,16 @@ function tagMeta(tag: Record<string, any>) {
 /** POST /tags — declare a new tag during checklist execution */
 app.post("/tags", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
     const body = await c.req.json();
     const { checklistId, tagType, location, anomaly, resolutionResponsibility,
             reviewer, criticality, observation, attachments } = body;
 
     if (!checklistId || !tagType || !anomaly || !criticality || !observation) {
       return c.json({ error: "Missing required fields: checklistId, tagType, anomaly, criticality, observation" }, 400);
+    }
+    if (!(await assertChecklistReadable(ctx, checklistId))) {
+      return c.json({ error: "Checklist not found" }, 404);
     }
 
     const tagId = `tag_${Date.now()}_${crypto.randomUUID()}`;
@@ -661,13 +823,13 @@ app.post("/tags", async (c) => {
       criticality,
       observation,
       attachments: attachments || [],
-      createdBy: GUEST_USER.id,
+      createdBy: ctx.userId,
       createdAt: Date.now(),
       status: "open",
     };
 
-    await kv.set(`tag:${tagId}`, tag);
-    await kv.set(`tag_meta:${tagId}`, tagMeta(tag));
+    await kv.set(tenantKey("tag", ctx.tenantId, tagId), tag);
+    await kv.set(tenantKey("tag_meta", ctx.tenantId, tagId), tagMeta(tag));
     console.log(`Tag declared: ${tagId} (${tagType} / ${criticality}) on checklist ${checklistId}`);
     return c.json({ success: true, tag });
   } catch (error) {
@@ -679,12 +841,13 @@ app.post("/tags", async (c) => {
 /** GET /tags — list tags, optionally filtered by checklistId or status */
 app.get("/tags", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
     const checklistId = c.req.query("checklistId");
     const status      = c.req.query("status");
     const tagType     = c.req.query("tagType");
 
-    const metaRaw = await getByPrefixWithRetry("tag_meta:");
-    const tags = metaRaw
+    const metaRaw = await getByPrefixWithRetry(`tag_meta:${ctx.tenantId}:`);
+    let tags = metaRaw
       .map(parseKvValue)
       .filter(Boolean)
       .filter((t: any) => {
@@ -697,6 +860,13 @@ app.get("/tags", async (c) => {
       .filter((t: any, i: number, arr: any[]) => arr.findIndex((x: any) => x.id === t.id) === i)
       .sort((a: any, b: any) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
 
+    if (checklistId && ctx.appRole === "user") {
+      if (!(await assertChecklistReadable(ctx, checklistId))) {
+        return c.json({ error: "Checklist not found" }, 404);
+      }
+    }
+    tags = await filterByReadableChecklists(ctx, tags);
+
     return c.json({ tags, count: tags.length });
   } catch (error) {
     console.error("Error listing tags:", error);
@@ -707,9 +877,13 @@ app.get("/tags", async (c) => {
 /** GET /tags/:id — get a specific tag (full record with attachments) */
 app.get("/tags/:id", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
     const tagId = c.req.param("id");
-    const tag = parseKvValue(await kv.get(`tag:${tagId}`));
+    const tag = parseKvValue(await kv.get(tenantKey("tag", ctx.tenantId, tagId)));
     if (!tag) return c.json({ error: "Tag not found" }, 404);
+    if (!(await assertChecklistReadable(ctx, tag.checklistId))) {
+      return c.json({ error: "Tag not found" }, 404);
+    }
     return c.json({ tag });
   } catch (error) {
     console.error("Error fetching tag:", error);
@@ -720,13 +894,17 @@ app.get("/tags/:id", async (c) => {
 /** PUT /tags/:id/status — update tag status (open → in_progress → resolved) */
 app.put("/tags/:id/status", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
     const tagId = c.req.param("id");
     const { status } = await c.req.json();
-    const tag = parseKvValue(await kv.get(`tag:${tagId}`));
+    const tag = parseKvValue(await kv.get(tenantKey("tag", ctx.tenantId, tagId)));
     if (!tag) return c.json({ error: "Tag not found" }, 404);
-    const updated = { ...tag, status, updatedAt: Date.now(), updatedBy: GUEST_USER.id };
-    await kv.set(`tag:${tagId}`, updated);
-    await kv.set(`tag_meta:${tagId}`, tagMeta(updated));
+    if (!(await assertChecklistReadable(ctx, tag.checklistId))) {
+      return c.json({ error: "Tag not found" }, 404);
+    }
+    const updated = { ...tag, status, updatedAt: Date.now(), updatedBy: ctx.userId };
+    await kv.set(tenantKey("tag", ctx.tenantId, tagId), updated);
+    await kv.set(tenantKey("tag_meta", ctx.tenantId, tagId), tagMeta(updated));
     console.log(`Tag ${tagId} status updated to ${status}`);
     return c.json({ success: true, tag: updated });
   } catch (error) {
@@ -756,11 +934,15 @@ function immediateActionMeta(action: Record<string, any>) {
 /** POST /immediate-actions — create a new immediate action */
 app.post("/immediate-actions", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
     const body = await c.req.json();
     const { checklistId, actionDescription, actionOwner, category, subcategory } = body;
 
     if (!checklistId || !actionDescription || !actionOwner || !category) {
       return c.json({ error: "Missing required fields: checklistId, actionDescription, actionOwner, category" }, 400);
+    }
+    if (!(await assertChecklistReadable(ctx, checklistId))) {
+      return c.json({ error: "Checklist not found" }, 404);
     }
 
     const actionId = `ia_${Date.now()}_${crypto.randomUUID()}`;
@@ -772,12 +954,12 @@ app.post("/immediate-actions", async (c) => {
       category,
       subcategory: subcategory || null,
       status: "open",
-      createdBy: GUEST_USER.id,
+      createdBy: ctx.userId,
       createdAt: Date.now(),
     };
 
-    await kv.set(`immediate_action:${actionId}`, action);
-    await kv.set(`immediate_action_meta:${actionId}`, immediateActionMeta(action));
+    await kv.set(tenantKey("immediate_action", ctx.tenantId, actionId), action);
+    await kv.set(tenantKey("immediate_action_meta", ctx.tenantId, actionId), immediateActionMeta(action));
     console.log(`Immediate action created: ${actionId} (${category}) on checklist ${checklistId}`);
     return c.json({ success: true, action });
   } catch (error) {
@@ -789,11 +971,12 @@ app.post("/immediate-actions", async (c) => {
 /** GET /immediate-actions — list immediate actions, optionally filtered by checklistId */
 app.get("/immediate-actions", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
     const checklistId = c.req.query("checklistId");
     const status      = c.req.query("status");
 
-    const metaRaw = await getByPrefixWithRetry("immediate_action_meta:");
-    const actions = metaRaw
+    const metaRaw = await getByPrefixWithRetry(`immediate_action_meta:${ctx.tenantId}:`);
+    let actions = metaRaw
       .map(parseKvValue)
       .filter(Boolean)
       .filter((a: any) => {
@@ -805,6 +988,13 @@ app.get("/immediate-actions", async (c) => {
       .filter((a: any, i: number, arr: any[]) => arr.findIndex((x: any) => x.id === a.id) === i)
       .sort((a: any, b: any) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
 
+    if (checklistId && ctx.appRole === "user") {
+      if (!(await assertChecklistReadable(ctx, checklistId))) {
+        return c.json({ error: "Checklist not found" }, 404);
+      }
+    }
+    actions = await filterByReadableChecklists(ctx, actions);
+
     return c.json({ actions, count: actions.length });
   } catch (error) {
     console.error("Error listing immediate actions:", error);
@@ -815,9 +1005,13 @@ app.get("/immediate-actions", async (c) => {
 /** GET /immediate-actions/:id — get a specific immediate action */
 app.get("/immediate-actions/:id", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
     const actionId = c.req.param("id");
-    const action = parseKvValue(await kv.get(`immediate_action:${actionId}`));
+    const action = parseKvValue(await kv.get(tenantKey("immediate_action", ctx.tenantId, actionId)));
     if (!action) return c.json({ error: "Immediate action not found" }, 404);
+    if (!(await assertChecklistReadable(ctx, action.checklistId))) {
+      return c.json({ error: "Immediate action not found" }, 404);
+    }
     return c.json({ action });
   } catch (error) {
     console.error("Error fetching immediate action:", error);
@@ -828,13 +1022,17 @@ app.get("/immediate-actions/:id", async (c) => {
 /** PUT /immediate-actions/:id/status — update immediate action status */
 app.put("/immediate-actions/:id/status", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
     const actionId = c.req.param("id");
     const { status } = await c.req.json();
-    const action = parseKvValue(await kv.get(`immediate_action:${actionId}`));
+    const action = parseKvValue(await kv.get(tenantKey("immediate_action", ctx.tenantId, actionId)));
     if (!action) return c.json({ error: "Immediate action not found" }, 404);
-    const updated = { ...action, status, updatedAt: Date.now(), updatedBy: GUEST_USER.id };
-    await kv.set(`immediate_action:${actionId}`, updated);
-    await kv.set(`immediate_action_meta:${actionId}`, immediateActionMeta(updated));
+    if (!(await assertChecklistReadable(ctx, action.checklistId))) {
+      return c.json({ error: "Immediate action not found" }, 404);
+    }
+    const updated = { ...action, status, updatedAt: Date.now(), updatedBy: ctx.userId };
+    await kv.set(tenantKey("immediate_action", ctx.tenantId, actionId), updated);
+    await kv.set(tenantKey("immediate_action_meta", ctx.tenantId, actionId), immediateActionMeta(updated));
     console.log(`Immediate action ${actionId} status updated to ${status}`);
     return c.json({ success: true, action: updated });
   } catch (error) {
@@ -850,10 +1048,14 @@ app.put("/immediate-actions/:id/status", async (c) => {
 /** POST /closure-events — create a closure event attached to a submission */
 app.post("/closure-events", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
     const body = await c.req.json();
     const { checklistId, submissionId, title, description, closureDate } = body;
     if (!checklistId || !title) {
       return c.json({ error: "Missing required fields: checklistId, title" }, 400);
+    }
+    if (!(await assertChecklistReadable(ctx, checklistId))) {
+      return c.json({ error: "Checklist not found" }, 404);
     }
     const id = `closure_event_${Date.now()}_${crypto.randomUUID()}`;
     const record = {
@@ -864,11 +1066,11 @@ app.post("/closure-events", async (c) => {
       description: description || "",
       closureDate: closureDate || null,
       status: "open",
-      createdBy: GUEST_USER.id,
+      createdBy: ctx.userId,
       createdAt: Date.now(),
     };
-    await kv.set(`closure_event:${id}`, record);
-    await kv.set(`closure_event_meta:${id}`, { id, checklistId, title, status: record.status, createdAt: record.createdAt });
+    await kv.set(tenantKey("closure_event", ctx.tenantId, id), record);
+    await kv.set(tenantKey("closure_event_meta", ctx.tenantId, id), { id, checklistId, title, status: record.status, createdAt: record.createdAt });
     console.log(`Closure event created: ${id} on checklist ${checklistId}`);
     return c.json({ success: true, closureEvent: record });
   } catch (error) {
@@ -884,10 +1086,14 @@ app.post("/closure-events", async (c) => {
 /** POST /action-items — create a follow-up action item */
 app.post("/action-items", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
     const body = await c.req.json();
     const { checklistId, submissionId, title, assignee, dueDate, priority } = body;
     if (!checklistId || !title) {
       return c.json({ error: "Missing required fields: checklistId, title" }, 400);
+    }
+    if (!(await assertChecklistReadable(ctx, checklistId))) {
+      return c.json({ error: "Checklist not found" }, 404);
     }
     const id = `action_item_${Date.now()}_${crypto.randomUUID()}`;
     const record = {
@@ -899,11 +1105,11 @@ app.post("/action-items", async (c) => {
       dueDate: dueDate || null,
       priority: priority || "normal",
       status: "open",
-      createdBy: GUEST_USER.id,
+      createdBy: ctx.userId,
       createdAt: Date.now(),
     };
-    await kv.set(`action_item:${id}`, record);
-    await kv.set(`action_item_meta:${id}`, { id, checklistId, title, priority: record.priority, status: record.status, createdAt: record.createdAt });
+    await kv.set(tenantKey("action_item", ctx.tenantId, id), record);
+    await kv.set(tenantKey("action_item_meta", ctx.tenantId, id), { id, checklistId, title, priority: record.priority, status: record.status, createdAt: record.createdAt });
     console.log(`Action item created: ${id} on checklist ${checklistId}`);
     return c.json({ success: true, actionItem: record });
   } catch (error) {
@@ -928,10 +1134,14 @@ function computeRiskLevel(likelihood: string, impact: string): string {
 /** POST /risk-assessments — create a risk assessment record */
 app.post("/risk-assessments", async (c) => {
   try {
+    const ctx = c.get("reqCtx")!;
     const body = await c.req.json();
     const { checklistId, submissionId, description, likelihood, impact } = body;
     if (!checklistId || !description) {
       return c.json({ error: "Missing required fields: checklistId, description" }, 400);
+    }
+    if (!(await assertChecklistReadable(ctx, checklistId))) {
+      return c.json({ error: "Checklist not found" }, 404);
     }
     const id = `risk_assessment_${Date.now()}_${crypto.randomUUID()}`;
     const riskLevel = computeRiskLevel(likelihood ?? "medium", impact ?? "medium");
@@ -944,11 +1154,11 @@ app.post("/risk-assessments", async (c) => {
       impact: impact || "medium",
       riskLevel,
       status: "open",
-      createdBy: GUEST_USER.id,
+      createdBy: ctx.userId,
       createdAt: Date.now(),
     };
-    await kv.set(`risk_assessment:${id}`, record);
-    await kv.set(`risk_assessment_meta:${id}`, { id, checklistId, description, riskLevel, status: record.status, createdAt: record.createdAt });
+    await kv.set(tenantKey("risk_assessment", ctx.tenantId, id), record);
+    await kv.set(tenantKey("risk_assessment_meta", ctx.tenantId, id), { id, checklistId, description, riskLevel, status: record.status, createdAt: record.createdAt });
     console.log(`Risk assessment created: ${id} (${riskLevel}) on checklist ${checklistId}`);
     return c.json({ success: true, riskAssessment: record });
   } catch (error) {
