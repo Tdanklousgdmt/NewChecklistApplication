@@ -66,6 +66,7 @@ interface ChecklistStep3Props {
     location?: string;
     validateChecklist?: boolean;
     managerName?: string;
+    managerUserId?: string;
   };
 }
 

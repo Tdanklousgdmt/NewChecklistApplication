@@ -34,6 +34,8 @@ import { QRScannerModal } from "./QRScannerModal";
 
 interface ChecklistDashboardProps {
   role: "user" | "manager";
+  /** Authenticated Supabase user id for notification inbox */
+  notificationUserId: string;
   onCreateNew: () => void;
   /** `redoSubmissionId` opens execution with manager feedback and answers from that rejected submission. */
   onExecuteChecklist?: (checklistId: string, assignmentId?: string, redoSubmissionId?: string) => void;
@@ -59,6 +61,7 @@ function formatFrequency(freq?: string): string {
 
 export function ChecklistDashboardReal({
   role,
+  notificationUserId,
   onCreateNew,
   onExecuteChecklist,
   onViewChecklist,
@@ -124,8 +127,6 @@ export function ChecklistDashboardReal({
       setRefreshingValidations(false);
     }
   };
-
-  const notificationUserId = role === "user" ? "guest" : undefined;
 
   const refreshNotifications = async () => {
     try {

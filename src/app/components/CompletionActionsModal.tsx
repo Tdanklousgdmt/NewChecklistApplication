@@ -6,18 +6,12 @@ import {
   Flag, User, Clock, TrendingUp,
 } from "lucide-react";
 import { toast } from "sonner";
-import { projectId, publicAnonKey } from "/utils/supabase/info";
+import { SERVER_URL, buildAuthHeaders } from "../services/checklistService";
 
-// ── API helper ──────────────────────────────────────────────────────────────
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-d5ac9b81`;
 async function apiPost(endpoint: string, body: object) {
-  const res = await fetch(`${SERVER}${endpoint}`, {
+  const res = await fetch(`${SERVER_URL}${endpoint}`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${publicAnonKey}`,
-      apikey: publicAnonKey,
-    },
+    headers: buildAuthHeaders(),
     body: JSON.stringify(body),
   });
   const data = await res.json();

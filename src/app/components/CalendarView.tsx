@@ -11,9 +11,7 @@ import {
   Loader2,
   RefreshCw,
 } from "lucide-react";
-import { projectId, publicAnonKey } from "/utils/supabase/info";
-
-const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-d5ac9b81`;
+import { SERVER_URL, buildAuthHeaders } from "../services/checklistService";
 
 const STATUSES = [
   { id: "active",    label: "Active",     color: "bg-green-500",  textColor: "text-green-700",  borderColor: "border-green-200",  cardBg: "bg-green-50"  },
@@ -89,10 +87,7 @@ export function CalendarView() {
     setError(null);
     try {
       const res = await fetch(`${SERVER_URL}/checklists`, {
-        headers: {
-          apikey: publicAnonKey,
-          Authorization: `Bearer ${publicAnonKey}`,
-        },
+        headers: buildAuthHeaders(),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();

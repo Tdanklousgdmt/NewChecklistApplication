@@ -1,20 +1,27 @@
 import { ChecklistVersion } from '../hooks/useAutosave';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { getAccessToken } from '../lib/authToken';
 
 // Base URL for the Hono server running inside the edge function
-const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-d5ac9b81`;
+export const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-d5ac9b81`;
+
+export function buildAuthHeaders(extra?: Record<string, string>): Record<string, string> {
+  const userJwt = getAccessToken();
+  if (!userJwt) throw new Error('Not signed in');
+  return {
+    'Content-Type': 'application/json',
+    apikey: publicAnonKey,
+    Authorization: `Bearer ${userJwt}`,
+    ...extra,
+  };
+}
 
 // ── Core API caller ────────────────────────────────────────────────────────────
-// Supabase edge-function gateway requires the project anon key to route
-// requests. No user JWT / session is needed — the server uses a static
-// GUEST_USER identity for all operations.
+// Edge gateway: anon key + authenticated user JWT (role authenticated).
 async function apiFetch(endpoint: string, options: RequestInit = {}) {
   const method = (options.method || 'GET').toUpperCase();
-
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'apikey': publicAnonKey,
-    'Authorization': `Bearer ${publicAnonKey}`,
+    ...buildAuthHeaders(),
     ...((options.headers as Record<string, string>) ?? {}),
   };
 
@@ -44,13 +51,13 @@ async function apiFetch(endpoint: string, options: RequestInit = {}) {
   return body;
 }
 
-/** @deprecated no-op kept for backwards-compat */
+/** @deprecated use Supabase session + getAccessToken */
 export function setAuthToken(_token: string) {}
-/** @deprecated no-op kept for backwards-compat */
+/** @deprecated use signOut from AuthContext */
 export function clearAuthToken() {}
-/** @deprecated kept for backwards-compat */
+/** @deprecated */
 export function getAuthStatus() {
-  return { hasToken: true, token: null };
+  return { hasToken: !!getAccessToken(), token: getAccessToken() };
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -66,6 +73,8 @@ export interface ChecklistData {
   location: string;
   validateChecklist: boolean;
   managerName?: string;
+  /** Supabase auth user id of the validating manager (for notifications). */
+  managerUserId?: string;
   canvasFields: any[];
   notes?: string;
 }
@@ -302,5 +311,27 @@ export const checklistService = {
 
   async markNotificationRead(notificationId: string): Promise<void> {
     await apiFetch(`/notifications/${notificationId}/read`, { method: 'PUT' });
+  },
+
+  async updateRosterEntry(
+    userId: string,
+    body: Partial<{ displayName: string; siteLocationId: string; teamId: string; shiftId: string; appRole: 'manager' | 'user' }>,
+  ): Promise<any> {
+    return apiFetch(`/org/roster/${encodeURIComponent(userId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+  },
+
+  async updateOrgSettings(payload: {
+    teams?: { id: string; name: string }[];
+    shifts?: { id: string; name: string }[];
+    siteLocations?: { id: string; label: string }[];
+  }): Promise<any> {
+    return apiFetch('/org/settings', { method: 'PUT', body: JSON.stringify(payload) });
+  },
+
+  async regenerateInvite(): Promise<any> {
+    return apiFetch('/org/regenerate-invite', { method: 'POST', body: '{}' });
   },
 };
