@@ -3,18 +3,31 @@ import { ChecklistDashboardReal } from "./components/ChecklistDashboardReal";
 import { ChecklistLibrary } from "./components/ChecklistLibrary";
 import { ChecklistDetail } from "./components/ChecklistDetail";
 import { ReportsPage } from "./components/ReportsPage";
-import { RoleSelection } from "./components/RoleSelection";
 import { ChecklistCreator } from "./components/ChecklistCreator";
 import { ChecklistExecution } from "./components/ChecklistExecution";
 import { ValidationScreen } from "./components/ValidationScreen";
 import { NavDrawer } from "./components/NavDrawer";
 import { QRScannerModal } from "./components/QRScannerModal";
+import { LoginScreen } from "./components/LoginScreen";
+import { OnboardingScreen } from "./components/OnboardingScreen";
+import { UserManagementScreen } from "./components/UserManagementScreen";
 import { Toaster } from "sonner";
+import { useAuth } from "./context/AuthContext";
+import { Loader2 } from "lucide-react";
 
-type AppView = "dashboard" | "create" | "execute" | "validate" | "view" | "library" | "checklist-detail" | "reports";
+type AppView =
+  | "dashboard"
+  | "create"
+  | "execute"
+  | "validate"
+  | "view"
+  | "library"
+  | "checklist-detail"
+  | "reports"
+  | "users";
 
 export default function App() {
-  const [role, setRole] = useState<"user" | "manager" | null>(null);
+  const { user, profile, loading, meLoading, signOut, roster, org } = useAuth();
   const [view, setView] = useState<AppView>("dashboard");
   const [navOpen, setNavOpen] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -24,17 +37,12 @@ export default function App() {
   const [activeRedoSubmissionId, setActiveRedoSubmissionId] = useState<string | null>(null);
   const [activeSubmissionId, setActiveSubmissionId] = useState<string | null>(null);
 
-  useEffect(() => {
-    const savedRole = localStorage.getItem("echeck_user_role") as "user" | "manager" | null;
-    if (savedRole) setRole(savedRole);
-  }, []);
+  const role = profile?.appRole ?? "user";
 
-  // Handle QR code deep-link: ?checklist=ID
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const clId   = params.get("checklist");
+    const clId = params.get("checklist");
     if (clId) {
-      // Clean the URL without a page reload
       window.history.replaceState({}, "", window.location.pathname);
       setActiveChecklistId(clId);
       setActiveAssignmentId(null);
@@ -43,15 +51,34 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => {
-    if (role) localStorage.setItem("echeck_user_role", role);
-  }, [role]);
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <Loader2 className="w-10 h-10 text-[#2abaad] animate-spin" />
+      </div>
+    );
+  }
 
-  // Role selection — no nav
-  if (role === null) {
+  if (!user) {
     return (
       <>
-        <RoleSelection onSelectRole={setRole} />
+        <LoginScreen />
+        <Toaster position="top-right" richColors />
+      </>
+    );
+  }
+
+  if (!profile) {
+    if (meLoading) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-50">
+          <Loader2 className="w-10 h-10 text-[#2abaad] animate-spin" />
+        </div>
+      );
+    }
+    return (
+      <>
+        <OnboardingScreen />
         <Toaster position="top-right" richColors />
       </>
     );
@@ -59,17 +86,18 @@ export default function App() {
 
   const openNav = () => setNavOpen(true);
 
-  const handleNavNavigate = (dest: "dashboard" | "library" | "create" | "reports") => {
+  const handleNavNavigate = (dest: "dashboard" | "library" | "create" | "reports" | "users") => {
     setActiveChecklistId(null);
     setActiveAssignmentId(null);
     setActiveRedoSubmissionId(null);
     setActiveSubmissionId(null);
-    setView(dest === "create" ? "create" : dest);
+    if (dest === "create") setView("create");
+    else if (dest === "users") setView("users");
+    else setView(dest);
   };
 
-  const handleSwitchRole = () => {
-    localStorage.removeItem("echeck_user_role");
-    setRole(null);
+  const handleSignOut = () => {
+    void signOut();
     setView("dashboard");
   };
 
@@ -81,7 +109,20 @@ export default function App() {
     setView("execute");
   };
 
-  // Global nav drawer + QR scanner modal — always rendered once role is chosen
+  const managerRoster = roster.map((r) => ({
+    userId: r.userId,
+    displayName: r.displayName,
+    email: r.email,
+    appRole: r.appRole,
+  }));
+
+  const assignRosterUsers = roster.map((r) => ({
+    id: r.userId,
+    name: r.displayName || r.email || r.userId,
+  }));
+
+  const assignTeamOptions = (org?.teams ?? []).map((t) => ({ id: t.id, name: t.name }));
+
   const navDrawer = (
     <NavDrawer
       open={navOpen}
@@ -89,7 +130,7 @@ export default function App() {
       currentView={view}
       role={role}
       onNavigate={handleNavNavigate}
-      onSwitchRole={handleSwitchRole}
+      onSignOut={handleSignOut}
       onOpenScanner={() => setScannerOpen(true)}
     />
   );
@@ -97,6 +138,17 @@ export default function App() {
   const qrScanner = scannerOpen && (
     <QRScannerModal onClose={() => setScannerOpen(false)} onResult={handleQRResult} />
   );
+
+  if (view === "users") {
+    return (
+      <>
+        {navDrawer}
+        {qrScanner}
+        <UserManagementScreen onOpenNav={openNav} />
+        <Toaster position="top-right" richColors />
+      </>
+    );
+  }
 
   if (view === "execute" && activeChecklistId) {
     return (
@@ -107,8 +159,18 @@ export default function App() {
           checklistId={activeChecklistId}
           assignmentId={activeAssignmentId || undefined}
           redoFromSubmissionId={activeRedoSubmissionId || undefined}
-          onBack={() => { setView("dashboard"); setActiveChecklistId(null); setActiveAssignmentId(null); setActiveRedoSubmissionId(null); }}
-          onSubmitted={() => { setView("dashboard"); setActiveChecklistId(null); setActiveAssignmentId(null); setActiveRedoSubmissionId(null); }}
+          onBack={() => {
+            setView("dashboard");
+            setActiveChecklistId(null);
+            setActiveAssignmentId(null);
+            setActiveRedoSubmissionId(null);
+          }}
+          onSubmitted={() => {
+            setView("dashboard");
+            setActiveChecklistId(null);
+            setActiveAssignmentId(null);
+            setActiveRedoSubmissionId(null);
+          }}
           onOpenNav={openNav}
         />
         <Toaster position="top-right" richColors />
@@ -123,8 +185,14 @@ export default function App() {
         {qrScanner}
         <ValidationScreen
           submissionId={activeSubmissionId}
-          onBack={() => { setView("dashboard"); setActiveSubmissionId(null); }}
-          onValidated={() => { setView("dashboard"); setActiveSubmissionId(null); }}
+          onBack={() => {
+            setView("dashboard");
+            setActiveSubmissionId(null);
+          }}
+          onValidated={() => {
+            setView("dashboard");
+            setActiveSubmissionId(null);
+          }}
           onOpenNav={openNav}
         />
         <Toaster position="top-right" richColors />
@@ -139,8 +207,14 @@ export default function App() {
         {qrScanner}
         <ChecklistCreator
           checklistId={view === "view" ? activeChecklistId! : undefined}
-          onBack={() => { setView(view === "view" ? "library" : "dashboard"); setActiveChecklistId(null); }}
+          onBack={() => {
+            setView(view === "view" ? "library" : "dashboard");
+            setActiveChecklistId(null);
+          }}
           onOpenNav={openNav}
+          managerRoster={managerRoster}
+          assignRosterUsers={assignRosterUsers}
+          assignTeamOptions={assignTeamOptions}
         />
         <Toaster position="top-right" richColors />
       </>
@@ -154,7 +228,10 @@ export default function App() {
         {qrScanner}
         <ChecklistDetail
           checklistId={activeChecklistId}
-          onBack={() => { setView("library"); setActiveChecklistId(null); }}
+          onBack={() => {
+            setView("library");
+            setActiveChecklistId(null);
+          }}
           onOpenNav={openNav}
         />
         <Toaster position="top-right" richColors />
@@ -169,7 +246,10 @@ export default function App() {
         {qrScanner}
         <ReportsPage
           onOpenNav={openNav}
-          onViewChecklist={(id) => { setActiveChecklistId(id); setView("checklist-detail"); }}
+          onViewChecklist={(id) => {
+            setActiveChecklistId(id);
+            setView("checklist-detail");
+          }}
         />
         <Toaster position="top-right" richColors />
       </>
@@ -183,8 +263,14 @@ export default function App() {
         {qrScanner}
         <ChecklistLibrary
           onCreateNew={() => setView("create")}
-          onEditChecklist={(id) => { setActiveChecklistId(id); setView("view"); }}
-          onViewDetail={(id) => { setActiveChecklistId(id); setView("checklist-detail"); }}
+          onEditChecklist={(id) => {
+            setActiveChecklistId(id);
+            setView("view");
+          }}
+          onViewDetail={(id) => {
+            setActiveChecklistId(id);
+            setView("checklist-detail");
+          }}
           onOpenNav={openNav}
         />
         <Toaster position="top-right" richColors />
@@ -195,9 +281,11 @@ export default function App() {
   return (
     <>
       {navDrawer}
-        {qrScanner}
+      {qrScanner}
       <ChecklistDashboardReal
+        key={profile.userId}
         role={role}
+        notificationUserId={profile.userId}
         onCreateNew={() => setView("create")}
         onExecuteChecklist={(checklistId, assignmentId, redoSubmissionId) => {
           setActiveChecklistId(checklistId);
@@ -205,8 +293,14 @@ export default function App() {
           setActiveRedoSubmissionId(redoSubmissionId ?? null);
           setView("execute");
         }}
-        onViewChecklist={(checklistId) => { setActiveChecklistId(checklistId); setView("view"); }}
-        onValidateSubmission={(submissionId) => { setActiveSubmissionId(submissionId); setView("validate"); }}
+        onViewChecklist={(checklistId) => {
+          setActiveChecklistId(checklistId);
+          setView("view");
+        }}
+        onValidateSubmission={(submissionId) => {
+          setActiveSubmissionId(submissionId);
+          setView("validate");
+        }}
         onOpenLibrary={() => setView("library")}
         onOpenReports={() => setView("reports")}
         onOpenNav={openNav}

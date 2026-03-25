@@ -122,12 +122,25 @@ interface ChecklistStep1Props {
   onCancel?: () => void;
   initialData?: any;
   onOpenNav?: () => void;
+  /** Org roster rows (managers) — when set, manager picker uses real user ids for validation routing. */
+  managerRoster?: { userId: string; displayName: string; email: string; appRole: string }[];
+  assignRosterUsers?: { id: string; name: string }[];
+  assignTeamOptions?: { id: string; name: string }[];
 }
 
-export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: ChecklistStep1Props) {
+export function ChecklistStep1({
+  onNext,
+  onCancel,
+  initialData,
+  onOpenNav,
+  managerRoster,
+  assignRosterUsers,
+  assignTeamOptions,
+}: ChecklistStep1Props) {
   const [validateChecklist, setValidateChecklist] = useState(initialData?.validateChecklist ?? false);
   const [responseMode, setResponseMode] = useState<ResponseMode>(initialData?.responseMode ?? "DISCARD");
   const [managerName, setManagerName] = useState(initialData?.managerName ?? "");
+  const [managerUserId, setManagerUserId] = useState(initialData?.managerUserId ?? "");
   const [title, setTitle] = useState(initialData?.title ?? "");
   const [category, setCategory] = useState(initialData?.category ?? "");
   const [priority, setPriority] = useState<Priority>(initialData?.priority ?? "normal");
@@ -200,8 +213,19 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
     setNewManagerName(""); setNewManagerEmail(""); setAddingManager(false); setManagerOpen(false);
   };
 
-  const filteredCats     = categories.filter(c => catSearch === "" || c.name.toLowerCase().includes(catSearch.toLowerCase()));
-  const filteredManagers = managers.filter(m => managerSearch === "" || m.name.toLowerCase().includes(managerSearch.toLowerCase()));
+  const filteredCats = categories.filter(c => catSearch === "" || c.name.toLowerCase().includes(catSearch.toLowerCase()));
+
+  const orgManagersForPicker = (managerRoster ?? [])
+    .filter((m) => m.appRole === "manager")
+    .map((m) => ({
+      id: m.userId,
+      name: m.displayName || m.email || m.userId,
+      email: m.email,
+    }));
+
+  const filteredManagers = (orgManagersForPicker.length > 0 ? orgManagersForPicker : managers).filter((m) =>
+    managerSearch === "" || `${m.name} ${m.email ?? ""}`.toLowerCase().includes(managerSearch.toLowerCase()),
+  );
 
   const inputClass =
     "w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-base text-gray-800 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-[#2abaad]/30 focus:border-[#2abaad] transition-all duration-150";
@@ -212,11 +236,29 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
     setLocation(""); setLocationSelections([]); setLocationSelectedIds(new Set());
     setRepeatEvery(1); setInterval("Week"); setStartAt("");
     setValidUntil("NEXT_OCCURRENCE"); setValidHour("");
-    setValidateChecklist(false); setResponseMode("DISCARD"); setManagerName("");
+    setValidateChecklist(false); setResponseMode("DISCARD"); setManagerName(""); setManagerUserId("");
   };
 
   const handleNext = () => {
-    onNext?.({ title, category, priority, validFrom, validTo, frequency, assignedTo, location, validateChecklist, responseMode, managerName, repeatEvery, interval, startAt, validUntil, validHour });
+    onNext?.({
+      title,
+      category,
+      priority,
+      validFrom,
+      validTo,
+      frequency,
+      assignedTo,
+      location,
+      validateChecklist,
+      responseMode,
+      managerName,
+      managerUserId: orgManagersForPicker.length > 0 ? managerUserId : undefined,
+      repeatEvery,
+      interval,
+      startAt,
+      validUntil,
+      validHour,
+    });
   };
 
   // ─────────────────────────────────────────────────────��───────
@@ -322,8 +364,13 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
                 search={managerSearch}
                 onSearch={setManagerSearch}
                 items={filteredManagers.map(m => ({ id: m.id, label: m.name, sublabel: m.email ?? undefined }))}
-                onSelect={(item) => { setManagerName(item.label); setManagerOpen(false); setManagerSearch(""); }}
-                onAddNew={() => setAddingManager(true)}
+                onSelect={(item) => {
+                  setManagerName(item.label);
+                  setManagerUserId(orgManagersForPicker.length > 0 ? item.id : "");
+                  setManagerOpen(false);
+                  setManagerSearch("");
+                }}
+                onAddNew={orgManagersForPicker.length > 0 ? undefined : () => setAddingManager(true)}
                 addingNew={addingManager}
                 newName={newManagerName}
                 onNewNameChange={setNewManagerName}
@@ -758,6 +805,8 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
       {showAssignModal && (
         <AssignToModal
           initialSelections={assignedSelections}
+          rosterUsers={assignRosterUsers}
+          teamOptions={assignTeamOptions}
           onConfirm={(selections) => { setAssignedSelections(selections); setAssignedTo(formatAssignToLabel(selections)); }}
           onClose={() => setShowAssignModal(false)}
         />
@@ -883,8 +932,13 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
                       search={managerSearch}
                       onSearch={setManagerSearch}
                       items={filteredManagers.map(m => ({ id: m.id, label: m.name, sublabel: m.email ?? undefined }))}
-                      onSelect={(item) => { setManagerName(item.label); setManagerOpen(false); setManagerSearch(""); }}
-                      onAddNew={() => setAddingManager(true)}
+                      onSelect={(item) => {
+                        setManagerName(item.label);
+                        setManagerUserId(orgManagersForPicker.length > 0 ? item.id : "");
+                        setManagerOpen(false);
+                        setManagerSearch("");
+                      }}
+                      onAddNew={orgManagersForPicker.length > 0 ? undefined : () => setAddingManager(true)}
                       addingNew={addingManager}
                       newName={newManagerName}
                       onNewNameChange={setNewManagerName}
@@ -1077,6 +1131,8 @@ export function ChecklistStep1({ onNext, onCancel, initialData, onOpenNav }: Che
               {showAssignModal && (
                 <AssignToModal
                   initialSelections={assignedSelections}
+                  rosterUsers={assignRosterUsers}
+                  teamOptions={assignTeamOptions}
                   onConfirm={(selections) => { setAssignedSelections(selections); setAssignedTo(formatAssignToLabel(selections)); }}
                   onClose={() => setShowAssignModal(false)}
                 />
@@ -1166,7 +1222,7 @@ interface DropdownProps {
   onSearch: (v: string) => void;
   items: DropdownItem[];
   onSelect: (item: DropdownItem) => void;
-  onAddNew: () => void;
+  onAddNew?: () => void;
   addingNew: boolean;
   newName: string;
   onNewNameChange: (v: string) => void;
@@ -1220,13 +1276,13 @@ function MobileDropdown(p: DropdownProps) {
                   <button type="button" onClick={p.onConfirmNew} className="flex-1 py-2 text-xs text-white bg-[#2abaad] rounded-xl">Add</button>
                 </div>
               </div>
-            ) : (
+            ) : p.onAddNew ? (
               <button type="button" onClick={p.onAddNew}
                 className="flex items-center gap-2 w-full px-4 py-3 text-sm text-[#2abaad] border-t border-gray-50 hover:bg-teal-50 transition-colors">
                 <Plus className="w-4 h-4" />
                 {p.dbReady ? "Add new…" : "Type custom value…"}
               </button>
-            )}
+            ) : null}
           </div>
         </>
       )}
@@ -1277,13 +1333,13 @@ function DesktopDropdown(p: DropdownProps) {
                   <button type="button" onClick={p.onConfirmNew} className="flex-1 py-1.5 text-xs text-white bg-[#2abaad] rounded-lg">Add</button>
                 </div>
               </div>
-            ) : (
+            ) : p.onAddNew ? (
               <button type="button" onClick={p.onAddNew}
                 className="flex items-center gap-2 w-full px-3 py-2.5 text-sm text-[#2abaad] border-t border-gray-50 hover:bg-teal-50 transition-colors">
                 <Plus className="w-3.5 h-3.5" />
                 {p.dbReady ? "Add new…" : "Type custom value…"}
               </button>
-            )}
+            ) : null}
           </div>
         </>
       )}

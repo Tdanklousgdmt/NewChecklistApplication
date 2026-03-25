@@ -5,7 +5,7 @@ import {
   Upload, Trash2, ZoomIn, Play, Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { projectId, publicAnonKey } from "/utils/supabase/info";
+import { SERVER_URL, buildAuthHeaders } from "../services/checklistService";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -81,18 +81,11 @@ interface TagDeclarationModalProps {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 async function saveTag(tag: Omit<any, "id">) {
-  const res = await fetch(
-    `https://${projectId}.supabase.co/functions/v1/make-server-d5ac9b81/tags`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${publicAnonKey}`,
-        apikey: publicAnonKey,
-      },
-      body: JSON.stringify(tag),
-    }
-  );
+  const res = await fetch(`${SERVER_URL}/tags`, {
+    method: "POST",
+    headers: buildAuthHeaders(),
+    body: JSON.stringify(tag),
+  });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.details || err.error || "Failed to save tag");

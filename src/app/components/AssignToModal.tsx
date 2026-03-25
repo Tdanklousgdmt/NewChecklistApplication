@@ -395,6 +395,10 @@ interface AssignToModalProps {
   initialSelections?: AssignEntry[];
   onConfirm: (selections: AssignEntry[]) => void;
   onClose: () => void;
+  /** When set, USER tab lists org members (Supabase user ids) instead of demo data. */
+  rosterUsers?: { id: string; name: string }[];
+  /** When set, TEAM tab uses org-defined teams. */
+  teamOptions?: { id: string; name: string }[];
 }
 
 // ── PlantTree sub-component ───────────────────────────────────────────────────
@@ -510,18 +514,27 @@ function PlantTree({ search, selected, onToggle, onBulkToggle }: PlantTreeProps)
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export function AssignToModal({ initialSelections = [], onConfirm, onClose }: AssignToModalProps) {
+export function AssignToModal({
+  initialSelections = [],
+  onConfirm,
+  onClose,
+  rosterUsers,
+  teamOptions,
+}: AssignToModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>("USER");
   const [search, setSearch]       = useState("");
   const [selected, setSelected]   = useState<AssignEntry[]>(initialSelections);
 
+  const usersSource = rosterUsers?.length ? rosterUsers : USERS_LIST;
+  const teamsSource = teamOptions?.length ? teamOptions : TEAMS_LIST;
+
   // Flat list filtering (TEAM / USER)
   const listForTab = useMemo(() => {
-    const raw = activeTab === "USER" ? USERS_LIST : activeTab === "TEAM" ? TEAMS_LIST : [];
+    const raw = activeTab === "USER" ? usersSource : activeTab === "TEAM" ? teamsSource : [];
     return raw.filter((item) =>
       `${item.id} ${item.name}`.toLowerCase().includes(search.toLowerCase())
     );
-  }, [activeTab, search]);
+  }, [activeTab, search, usersSource, teamsSource]);
 
   const isSelected = (id: string) => selected.some((s) => s.id === id);
 

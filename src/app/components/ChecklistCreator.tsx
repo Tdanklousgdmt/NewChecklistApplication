@@ -12,9 +12,19 @@ interface ChecklistCreatorProps {
   onBack: () => void;
   checklistId?: string;
   onOpenNav?: () => void;
+  managerRoster?: { userId: string; displayName: string; email: string; appRole: string }[];
+  assignRosterUsers?: { id: string; name: string }[];
+  assignTeamOptions?: { id: string; name: string }[];
 }
 
-export function ChecklistCreator({ onBack, checklistId: existingChecklistId, onOpenNav }: ChecklistCreatorProps) {
+export function ChecklistCreator({
+  onBack,
+  checklistId: existingChecklistId,
+  onOpenNav,
+  managerRoster,
+  assignRosterUsers,
+  assignTeamOptions,
+}: ChecklistCreatorProps) {
   const [step, setStep] = useState(1);
   const [checklistId, setChecklistId] = useState(existingChecklistId || '');
   // Ref keeps the ID current *immediately* after first creation so the next
@@ -211,6 +221,9 @@ export function ChecklistCreator({ onBack, checklistId: existingChecklistId, onO
       {step === 1 && (
         <ChecklistStep1
           initialData={checklistData}
+          managerRoster={managerRoster}
+          assignRosterUsers={assignRosterUsers}
+          assignTeamOptions={assignTeamOptions}
           onNext={(data) => {
             updateData({ ...checklistData, ...data });
             handleStepChange(2);
@@ -246,6 +259,7 @@ export function ChecklistCreator({ onBack, checklistId: existingChecklistId, onO
             location: checklistData.location,
             validateChecklist: checklistData.validateChecklist,
             managerName: checklistData.managerName,
+            managerUserId: checklistData.managerUserId,
           }}
           onPublish={handlePublish}
         />

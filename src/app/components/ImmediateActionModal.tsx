@@ -3,7 +3,7 @@ import {
   X, Zap, ChevronDown, Search, User, Tag, Layers, Check, Loader2, AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
-import { projectId, publicAnonKey } from "/utils/supabase/info";
+import { SERVER_URL, buildAuthHeaders } from "../services/checklistService";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -47,18 +47,11 @@ const CATEGORIES: Record<string, string[]> = {
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 async function saveImmediateAction(action: object) {
-  const res = await fetch(
-    `https://${projectId}.supabase.co/functions/v1/make-server-d5ac9b81/immediate-actions`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${publicAnonKey}`,
-        apikey: publicAnonKey,
-      },
-      body: JSON.stringify(action),
-    }
-  );
+  const res = await fetch(`${SERVER_URL}/immediate-actions`, {
+    method: "POST",
+    headers: buildAuthHeaders(),
+    body: JSON.stringify(action),
+  });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.details || err.error || "Failed to save immediate action");

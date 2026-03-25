@@ -10,9 +10,10 @@ import {
   ShieldCheck,
   BarChart3,
   ScanLine,
+  UserCog,
 } from "lucide-react";
 
-type View = "dashboard" | "library" | "create" | "reports";
+type View = "dashboard" | "library" | "create" | "reports" | "users";
 
 interface NavDrawerProps {
   open: boolean;
@@ -20,7 +21,7 @@ interface NavDrawerProps {
   currentView: string;
   role: "user" | "manager";
   onNavigate: (view: View) => void;
-  onSwitchRole: () => void;
+  onSignOut: () => void;
   onOpenScanner?: () => void;
 }
 
@@ -48,6 +49,12 @@ const NAV_ITEMS: { view: View; label: string; icon: React.ReactNode; managerOnly
     icon: <Plus className="w-5 h-5" />,
     managerOnly: true,
   },
+  {
+    view: "users",
+    label: "User management",
+    icon: <UserCog className="w-5 h-5" />,
+    managerOnly: true,
+  },
 ];
 
 export function NavDrawer({
@@ -56,7 +63,7 @@ export function NavDrawer({
   currentView,
   role,
   onNavigate,
-  onSwitchRole,
+  onSignOut,
   onOpenScanner,
 }: NavDrawerProps) {
   // Close on Escape key
@@ -72,7 +79,7 @@ export function NavDrawer({
   const isActive = (view: View) =>
     currentView === view ||
     (view === "library" && currentView === "checklist-detail") ||
-    (view === "reports"  && currentView === "reports");
+    (view === "reports" && currentView === "reports");
 
   return (
     <>
@@ -184,18 +191,18 @@ export function NavDrawer({
             </div>
           </div>
 
-          {/* Switch role button */}
+          {/* Sign out */}
           <button
             type="button"
             onClick={() => {
-              onSwitchRole();
+              onSignOut();
               onClose();
             }}
             className="flex items-center justify-between w-full px-3 py-2.5 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-800 transition-colors"
           >
             <span className="flex items-center gap-3">
               <UserCircle className="w-5 h-5 text-gray-400 shrink-0" />
-              Switch role
+              Sign out
             </span>
             <ChevronRight className="w-4 h-4 text-gray-400" />
           </button>

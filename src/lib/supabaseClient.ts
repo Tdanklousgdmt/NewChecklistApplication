@@ -4,5 +4,5 @@ import { projectId, publicAnonKey } from "/utils/supabase/info";
 export const supabase = createClient(
   `https://${projectId}.supabase.co`,
   publicAnonKey,
-  { auth: { persistSession: false } }
+  { auth: { persistSession: true, autoRefreshToken: true } },
 );
