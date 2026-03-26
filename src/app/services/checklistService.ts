@@ -1,6 +1,7 @@
 import { ChecklistVersion } from '../hooks/useAutosave';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { getAccessToken } from '../lib/authToken';
+import { isLocalMode, localApiFetch } from '../lib/localBackend';
 
 /**
  * API base (no trailing slash).
@@ -10,6 +11,7 @@ import { getAccessToken } from '../lib/authToken';
  * We therefore ignore **relative** values and only honor absolute `http(s)://...` overrides.
  */
 function resolveApiBase(): string {
+  if (isLocalMode()) return 'local://e-check';
   const edge = `https://${projectId}.supabase.co/functions/v1/make-server-d5ac9b81`;
   const raw = import.meta.env.VITE_API_BASE_URL as string | undefined;
   if (raw === undefined || raw === null || String(raw).trim() === "") {
@@ -55,20 +57,31 @@ async function apiFetch(endpoint: string, options: RequestInit = {}) {
 
   console.log(`[API] ${method} ${endpoint}`);
 
+  if (isLocalMode()) {
+    const response = await localApiFetch(method, endpoint, { ...options, headers });
+    const body = await response.json();
+    if (!response.ok) {
+      const errMsg = body?.error || body?.message || `HTTP ${response.status}`;
+      const err: any = new Error(errMsg);
+      err.status = response.status;
+      err.body = body;
+      throw err;
+    }
+    return body;
+  }
+
   const response = await fetch(`${SERVER_URL}${endpoint}`, {
     ...options,
     method,
     headers,
   });
 
-  // Always parse the body so callers can inspect it (e.g. for 409 conflict data)
   let body: any = null;
   try { body = await response.json(); } catch { /* no body */ }
 
   if (!response.ok) {
     const errMsg = body?.error || body?.message || `HTTP ${response.status}`;
     console.error(`[API] ❌ Error ${method} ${endpoint}:`, body);
-    // Attach the full body so catch blocks can read `duplicate` etc.
     const err: any = new Error(errMsg);
     err.status  = response.status;
     err.body    = body;

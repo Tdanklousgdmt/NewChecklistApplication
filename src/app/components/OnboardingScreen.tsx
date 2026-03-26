@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react";
 import { publicAnonKey } from "/utils/supabase/info";
 import { useAuth } from "../context/AuthContext";
 import { SERVER_URL } from "../services/checklistService";
+import { isLocalMode, localApiFetch } from "../lib/localBackend";
 
 type Preview = {
   valid: boolean;
@@ -33,9 +34,16 @@ export function OnboardingScreen() {
       return;
     }
     try {
-      const res = await fetch(`${SERVER_URL}/invite-preview?code=${encodeURIComponent(code)}`);
+      const path = `/invite-preview?code=${encodeURIComponent(code)}`;
+      const res = isLocalMode()
+        ? await localApiFetch("GET", path, {})
+        : await fetch(`${SERVER_URL}${path}`).then(async (r) => ({
+            ok: r.ok,
+            status: r.status,
+            json: () => r.json(),
+          }));
       const data = await res.json();
-      if (!data.valid) {
+      if (!res.ok || !data.valid) {
         setPreview(null);
         setError("Invalid invite code");
         return;
@@ -68,16 +76,23 @@ export function OnboardingScreen() {
               teamId,
               shiftId,
             };
-      const res = await fetch(`${SERVER_URL}/auth/onboarding`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: publicAnonKey,
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json().catch(() => ({}));
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        ...(isLocalMode() ? {} : { apikey: publicAnonKey }),
+      };
+      const res = isLocalMode()
+        ? await localApiFetch("POST", "/auth/onboarding", { method: "POST", headers, body: JSON.stringify(body) })
+        : await fetch(`${SERVER_URL}/auth/onboarding`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body),
+          }).then(async (r) => ({
+            ok: r.ok,
+            status: r.status,
+            json: () => r.json().catch(() => ({})),
+          }));
+      const data = await res.json();
       if (!res.ok) {
         setError(data.error || `Error ${res.status}`);
         return;
