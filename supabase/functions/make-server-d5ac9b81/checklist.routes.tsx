@@ -251,7 +251,8 @@ app.get("/checklists", async (c) => {
         ids.has(ch.id),
       );
     }
-      // deduplicate by id (safety net)
+
+    checklists = checklists
       .filter((ch: any, i: number, arr: any[]) => arr.findIndex((x: any) => x.id === ch.id) === i)
       .sort((a: any, b: any) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
 

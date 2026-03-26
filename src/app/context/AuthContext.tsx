@@ -10,8 +10,7 @@ import {
 import { createClient, type Session, type User } from "@supabase/supabase-js";
 import { projectId, publicAnonKey } from "/utils/supabase/info";
 import { setAccessToken } from "../lib/authToken";
-
-const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-d5ac9b81`;
+import { SERVER_URL } from "../services/checklistService";
 
 export type AppRole = "manager" | "user";
 
