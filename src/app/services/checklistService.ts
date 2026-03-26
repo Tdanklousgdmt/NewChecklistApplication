@@ -3,15 +3,22 @@ import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { getAccessToken } from '../lib/authToken';
 
 /**
- * API base (no trailing slash). Set `VITE_API_BASE_URL=/api` on Vercel to use the bundled serverless API.
- * If unset, uses Supabase Edge Function URL.
+ * API base (no trailing slash).
+ * - Default: Supabase Edge function URL (already includes `make-server-d5ac9b81`).
+ * - Vercel: set `VITE_API_BASE_URL=/api` (or `https://your-app.vercel.app/api`). We append
+ *   `/make-server-d5ac9b81` so paths match the Hono app (`/auth/onboarding`, `/checklists`, …).
  */
 function resolveApiBase(): string {
   const raw = import.meta.env.VITE_API_BASE_URL as string | undefined;
   if (raw === undefined || raw === null || String(raw).trim() === "") {
     return `https://${projectId}.supabase.co/functions/v1/make-server-d5ac9b81`;
   }
-  return String(raw).trim().replace(/\/$/, "");
+  let base = String(raw).trim().replace(/\/$/, "");
+  // Same-origin or absolute URL ending with /api → mount path for serverless handler
+  if (base === "/api" || /\/api$/i.test(base)) {
+    base = `${base}/make-server-d5ac9b81`;
+  }
+  return base;
 }
 
 export const SERVER_URL = resolveApiBase();
