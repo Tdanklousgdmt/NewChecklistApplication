@@ -2,8 +2,19 @@ import { ChecklistVersion } from '../hooks/useAutosave';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { getAccessToken } from '../lib/authToken';
 
-// Base URL for the Hono server running inside the edge function
-export const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-d5ac9b81`;
+/**
+ * API base (no trailing slash). Set `VITE_API_BASE_URL=/api` on Vercel to use the bundled serverless API.
+ * If unset, uses Supabase Edge Function URL.
+ */
+function resolveApiBase(): string {
+  const raw = import.meta.env.VITE_API_BASE_URL as string | undefined;
+  if (raw === undefined || raw === null || String(raw).trim() === "") {
+    return `https://${projectId}.supabase.co/functions/v1/make-server-d5ac9b81`;
+  }
+  return String(raw).trim().replace(/\/$/, "");
+}
+
+export const SERVER_URL = resolveApiBase();
 
 export function buildAuthHeaders(extra?: Record<string, string>): Record<string, string> {
   const userJwt = getAccessToken();

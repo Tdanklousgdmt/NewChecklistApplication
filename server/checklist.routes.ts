@@ -1,7 +1,7 @@
-import { Hono } from "npm:hono";
-import * as kv from "./kv_store.tsx";
-import { tenantKey } from "./context.tsx";
-import { authMiddleware, requireOnboardedMiddleware, type Variables } from "./middleware.tsx";
+import { Hono } from "hono";
+import * as kv from "./kv_store";
+import { tenantKey } from "./context";
+import { authMiddleware, requireOnboardedMiddleware, type Variables } from "./middleware";
 
 const app = new Hono<{ Variables: Variables }>();
 app.use("*", authMiddleware);
@@ -115,7 +115,7 @@ function checklistMeta(ch: Record<string, any>) {
   return meta;
 }
 
-type Ctx = import("./context.tsx").RequestContext;
+type Ctx = import("./context").RequestContext;
 
 async function getChecklistForTenant(ctx: Ctx, checklistId: string): Promise<Record<string, any> | null> {
   return parseKvValue(await kv.get(tenantKey("checklist", ctx.tenantId, checklistId)));

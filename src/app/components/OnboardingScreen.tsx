@@ -1,9 +1,8 @@
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
-import { projectId, publicAnonKey } from "/utils/supabase/info";
+import { publicAnonKey } from "/utils/supabase/info";
 import { useAuth } from "../context/AuthContext";
-
-const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-d5ac9b81`;
+import { SERVER_URL } from "../services/checklistService";
 
 type Preview = {
   valid: boolean;
