@@ -31,6 +31,15 @@ function parseKvValue(val: unknown): any {
   return val;
 }
 
+/** Same value as Supabase Project Settings → API → JWT Secret. */
+function jwtSigningSecret(): string | undefined {
+  const s =
+    Deno.env.get("SUPABASE_JWT_SECRET")?.trim() ||
+    Deno.env.get("APP_JWT_SECRET")?.trim() ||
+    Deno.env.get("JWT_SECRET")?.trim();
+  return s || undefined;
+}
+
 export async function verifySupabaseJwt(authHeader: string | undefined): Promise<{
   sub: string;
   email: string;
@@ -39,9 +48,9 @@ export async function verifySupabaseJwt(authHeader: string | undefined): Promise
   const token = authHeader.slice(7).trim();
   if (!token) return null;
 
-  const secret = Deno.env.get("SUPABASE_JWT_SECRET");
+  const secret = jwtSigningSecret();
   if (!secret) {
-    console.error("SUPABASE_JWT_SECRET is not set — cannot verify JWTs");
+    console.error("JWT secret not set — set SUPABASE_JWT_SECRET or APP_JWT_SECRET (Supabase API JWT Secret)");
     return null;
   }
 

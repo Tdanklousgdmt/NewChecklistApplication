@@ -31,6 +31,15 @@ function parseKvValue(val: unknown): unknown {
   return val;
 }
 
+/** Same value as Supabase Project Settings → API → JWT Secret. Vercel forbids new SUPABASE_* secrets — use APP_JWT_SECRET there. */
+function jwtSigningSecret(): string | undefined {
+  const s =
+    process.env.SUPABASE_JWT_SECRET?.trim() ||
+    process.env.APP_JWT_SECRET?.trim() ||
+    process.env.JWT_SECRET?.trim();
+  return s || undefined;
+}
+
 export async function verifySupabaseJwt(authHeader: string | undefined): Promise<{
   sub: string;
   email: string;
@@ -39,9 +48,9 @@ export async function verifySupabaseJwt(authHeader: string | undefined): Promise
   const token = authHeader.slice(7).trim();
   if (!token) return null;
 
-  const secret = process.env.SUPABASE_JWT_SECRET;
+  const secret = jwtSigningSecret();
   if (!secret) {
-    console.error("SUPABASE_JWT_SECRET is not set — cannot verify JWTs");
+    console.error("JWT secret not set — set APP_JWT_SECRET or SUPABASE_JWT_SECRET (same as Supabase API JWT Secret)");
     return null;
   }
 

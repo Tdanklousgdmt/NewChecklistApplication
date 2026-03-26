@@ -91,7 +91,7 @@ export function OnboardingScreen() {
       if (!res.ok) {
         if (res.status === 401) {
           setError(
-            "Could not verify your session (401). In Supabase, open your Edge function secrets and set SUPABASE_JWT_SECRET to the same JWT secret as Project Settings → API, then redeploy the function.",
+            "Could not verify your session (401). Set the JWT signing secret on your API: in Supabase → Edge Functions → secrets use SUPABASE_JWT_SECRET or APP_JWT_SECRET (value = Project Settings → API → JWT Secret), then redeploy. On Vercel you cannot add SUPABASE_* secrets — use APP_JWT_SECRET for the Node API instead.",
           );
         } else {
           setError(data.error || `Error ${res.status}`);
