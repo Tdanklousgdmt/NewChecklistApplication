@@ -207,8 +207,8 @@ function exportPDF(
     styles: { fontSize: 10 },
   });
 
-  // Checklist table
-  let y = (doc as any).lastAutoTable?.finalY + 12 ?? 110;
+  // Checklist table (parentheses: + binds tighter than ?? without them)
+  let y = ((doc as any).lastAutoTable?.finalY ?? 110 - 12) + 12;
   doc.setFontSize(13); doc.setTextColor(30, 30, 30);
   doc.text("Checklist Performance", 14, y);
   autoTable(doc, {
@@ -225,7 +225,7 @@ function exportPDF(
 
   // User table
   if (doc.internal.getCurrentPageInfo().pageNumber < 3) {
-    y = (doc as any).lastAutoTable?.finalY + 12 ?? 200;
+    y = ((doc as any).lastAutoTable?.finalY ?? 200 - 12) + 12;
     if (y > 250) { doc.addPage(); y = 14; }
     doc.setFontSize(13); doc.text("User Performance", 14, y);
     autoTable(doc, {
