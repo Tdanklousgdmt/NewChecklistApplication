@@ -4,21 +4,31 @@ import { getAccessToken } from '../lib/authToken';
 
 /**
  * API base (no trailing slash).
- * - Default: Supabase Edge function URL (already includes `make-server-d5ac9b81`).
- * - Vercel: set `VITE_API_BASE_URL=/api` (or `https://your-app.vercel.app/api`). We append
- *   `/make-server-d5ac9b81` so paths match the Hono app (`/auth/onboarding`, `/checklists`, …).
+ * Default: Supabase Edge function (same project as auth — reliable from any host).
+ *
+ * `VITE_API_BASE_URL=/api` on Vercel often 404s (static app + separate function routing).
+ * We therefore ignore **relative** values and only honor absolute `http(s)://...` overrides.
  */
 function resolveApiBase(): string {
+  const edge = `https://${projectId}.supabase.co/functions/v1/make-server-d5ac9b81`;
   const raw = import.meta.env.VITE_API_BASE_URL as string | undefined;
   if (raw === undefined || raw === null || String(raw).trim() === "") {
-    return `https://${projectId}.supabase.co/functions/v1/make-server-d5ac9b81`;
+    return edge;
   }
-  let base = String(raw).trim().replace(/\/$/, "");
-  // Same-origin or absolute URL ending with /api → mount path for serverless handler
-  if (base === "/api" || /\/api$/i.test(base)) {
-    base = `${base}/make-server-d5ac9b81`;
+  const base = String(raw).trim().replace(/\/$/, "");
+  if (base === "/api" || base.startsWith("/")) {
+    if (import.meta.env.DEV) {
+      console.warn(
+        "[API] Relative VITE_API_BASE_URL is ignored; using Supabase Edge. Remove it in Vercel env, or set an absolute https:// URL.",
+      );
+    }
+    return edge;
   }
-  return base;
+  if (base.startsWith("http://") || base.startsWith("https://")) {
+    if (/\/api$/i.test(base)) return `${base}/make-server-d5ac9b81`;
+    return base;
+  }
+  return edge;
 }
 
 export const SERVER_URL = resolveApiBase();
