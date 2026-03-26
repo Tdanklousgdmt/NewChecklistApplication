@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react";
 import { publicAnonKey } from "/utils/supabase/info";
 import { useAuth } from "../context/AuthContext";
 import { SERVER_URL } from "../services/checklistService";
-import { isLocalMode, localApiFetch } from "../lib/localBackend";
+import { isLocalMode, localApiFetch, setRuntimeLocalMode } from "../lib/localBackend";
 
 type Preview = {
   valid: boolean;
@@ -13,7 +13,7 @@ type Preview = {
 };
 
 export function OnboardingScreen() {
-  const { session, refreshMe } = useAuth();
+  const { session, refreshMe, signOut, localMode } = useAuth();
   const [mode, setMode] = useState<"choose" | "create" | "join">("choose");
   const [displayName, setDisplayName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
@@ -23,11 +23,13 @@ export function OnboardingScreen() {
   const [shiftId, setShiftId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [serverAuthFailed, setServerAuthFailed] = useState(false);
 
   const token = session?.access_token;
 
   const lookupInvite = async () => {
     setError(null);
+    setServerAuthFailed(false);
     const code = inviteCode.trim().toUpperCase();
     if (!code) {
       setError("Enter an invite code");
@@ -64,6 +66,7 @@ export function OnboardingScreen() {
     if (!token) return;
     setBusy(true);
     setError(null);
+    setServerAuthFailed(false);
     try {
       const body =
         mode === "create"
@@ -94,7 +97,14 @@ export function OnboardingScreen() {
           }));
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || `Error ${res.status}`);
+        if (!isLocalMode() && res.status === 401) {
+          setServerAuthFailed(true);
+          setError(
+            "The API could not verify your login (401). This usually means the Edge function is missing SUPABASE_JWT_SECRET or it does not match your project. You can use offline mode instead (data stays in this browser only).",
+          );
+        } else {
+          setError(data.error || `Error ${res.status}`);
+        }
         return;
       }
       await refreshMe();
@@ -219,6 +229,34 @@ export function OnboardingScreen() {
         )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
+
+        {!localMode && serverAuthFailed && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 space-y-2">
+            <p className="font-medium">Quick fix without redeploying</p>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                void (async () => {
+                  setBusy(true);
+                  try {
+                    await signOut();
+                    setRuntimeLocalMode(true);
+                    window.location.reload();
+                  } finally {
+                    setBusy(false);
+                  }
+                })();
+              }}
+              className="w-full py-2 rounded-lg bg-amber-800 text-white text-xs font-semibold hover:bg-amber-900 disabled:opacity-50"
+            >
+              Switch to offline mode and start over
+            </button>
+            <p className="text-amber-900/80">
+              You will return to the sign-in screen. Create an account again; your data will be stored only on this device.
+            </p>
+          </div>
+        )}
 
         <button
           type="button"

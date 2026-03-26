@@ -39,6 +39,8 @@ type RosterEntry = {
 const KV_KEY = "e_check_local_kv";
 const USERS_KEY = "e_check_local_users";
 const SESSION_KEY = "e_check_local_session";
+/** When set in localStorage, use in-browser API even if the build has no VITE_LOCAL_MODE (no redeploy). */
+const RUNTIME_LOCAL_FLAG = "echeck_local_mode";
 
 type LocalUser = { id: string; email: string; password: string; createdAt: number };
 
@@ -80,9 +82,34 @@ function kvByPrefix(prefix: string): unknown[] {
     .map(([, v]) => v);
 }
 
-export function isLocalMode(): boolean {
+export function isBuildTimeLocalMode(): boolean {
   const v = import.meta.env.VITE_LOCAL_MODE;
   return v === "true" || v === "1" || String(v).toLowerCase() === "yes";
+}
+
+export function isRuntimeLocalMode(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const v = window.localStorage.getItem(RUNTIME_LOCAL_FLAG);
+    return v === "1" || v === "true" || String(v).toLowerCase() === "yes";
+  } catch {
+    return false;
+  }
+}
+
+/** Enable/disable browser-only API without rebuilding (reload required). */
+export function setRuntimeLocalMode(enabled: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (enabled) window.localStorage.setItem(RUNTIME_LOCAL_FLAG, "1");
+    else window.localStorage.removeItem(RUNTIME_LOCAL_FLAG);
+  } catch {
+    /* private mode / quota */
+  }
+}
+
+export function isLocalMode(): boolean {
+  return isBuildTimeLocalMode() || isRuntimeLocalMode();
 }
 
 function encodeToken(userId: string, email: string): string {
