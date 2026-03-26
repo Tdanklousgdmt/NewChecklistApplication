@@ -3,6 +3,8 @@
  * Enable with VITE_LOCAL_MODE=true (build-time). No Supabase Edge or /api required.
  */
 
+import { setAccessToken } from "./authToken";
+
 type AppRole = "manager" | "user";
 
 type UserProfile = {
@@ -107,10 +109,12 @@ export function localGetSession(): { token: string; userId: string; email: strin
 
 export function localSetSession(token: string, userId: string, email: string) {
   saveJson(SESSION_KEY, { token, userId, email });
+  setAccessToken(token);
 }
 
 export function localClearSession() {
   localStorage.removeItem(SESSION_KEY);
+  setAccessToken(null);
 }
 
 export function localRegister(email: string, password: string): { error: string | null } {

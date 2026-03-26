@@ -156,6 +156,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (localMode) {
+      const s = localGetSession();
+      if (s?.token) setAccessToken(s.token);
+      else setAccessToken(null);
       setSession(localSessionFromStorage());
       setLoading(false);
       return;

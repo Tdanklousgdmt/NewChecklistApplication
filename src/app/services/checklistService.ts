@@ -1,7 +1,7 @@
 import { ChecklistVersion } from '../hooks/useAutosave';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { getAccessToken } from '../lib/authToken';
-import { isLocalMode, localApiFetch } from '../lib/localBackend';
+import { isLocalMode, localApiFetch, localGetSession } from '../lib/localBackend';
 
 /**
  * API base (no trailing slash).
@@ -36,7 +36,10 @@ function resolveApiBase(): string {
 export const SERVER_URL = resolveApiBase();
 
 export function buildAuthHeaders(extra?: Record<string, string>): Record<string, string> {
-  const userJwt = getAccessToken();
+  let userJwt = getAccessToken();
+  if (!userJwt && isLocalMode()) {
+    userJwt = localGetSession()?.token ?? null;
+  }
   if (!userJwt) throw new Error('Not signed in');
   return {
     'Content-Type': 'application/json',
