@@ -11,14 +11,6 @@ import { createClient, type Session, type User } from "@supabase/supabase-js";
 import { projectId, publicAnonKey } from "/utils/supabase/info";
 import { setAccessToken } from "../lib/authToken";
 import { SERVER_URL } from "../services/checklistService";
-import {
-  isLocalMode,
-  localApiFetch,
-  localClearSession,
-  localGetSession,
-  localLogin,
-  localRegister,
-} from "../lib/localBackend";
 
 export type AppRole = "manager" | "user";
 
@@ -66,19 +58,6 @@ const supabase = createClient(`https://${projectId}.supabase.co`, publicAnonKey,
   auth: { persistSession: true, autoRefreshToken: true },
 });
 
-function localSessionFromStorage(): Session | null {
-  const s = localGetSession();
-  if (!s) return null;
-  return {
-    access_token: s.token,
-    token_type: "bearer",
-    expires_in: 999999999,
-    expires_at: undefined,
-    refresh_token: "",
-    user: { id: s.userId, email: s.email, app_metadata: {}, user_metadata: {}, aud: "local", created_at: "" } as User,
-  } as Session;
-}
-
 type AuthContextValue = {
   supabase: typeof supabase;
   session: Session | null;
@@ -92,12 +71,11 @@ type AuthContextValue = {
   signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   refreshMe: () => Promise<void>;
-  localMode: boolean;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-async function fetchMeRemote(accessToken: string): Promise<MeResponse | null> {
+async function fetchMe(accessToken: string): Promise<MeResponse | null> {
   const res = await fetch(`${SERVER_URL}/auth/me`, {
     headers: {
       apikey: publicAnonKey,
@@ -108,17 +86,7 @@ async function fetchMeRemote(accessToken: string): Promise<MeResponse | null> {
   return res.json();
 }
 
-async function fetchMeLocal(token: string): Promise<MeResponse | null> {
-  const res = await localApiFetch("GET", "/auth/me", {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const data = await res.json();
-  if (!res.ok) return null;
-  return data;
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const localMode = isLocalMode();
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [org, setOrg] = useState<TenantOrg | null>(null);
@@ -126,22 +94,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [meLoading, setMeLoading] = useState(false);
 
-  const loadMe = useCallback(
-    async (token: string) => {
-      setMeLoading(true);
-      try {
-        const data = localMode ? await fetchMeLocal(token) : await fetchMeRemote(token);
-        if (data) {
-          setProfile(data.profile);
-          setOrg(data.org);
-          setRoster(data.roster ?? []);
-        }
-      } finally {
-        setMeLoading(false);
+  const loadMe = useCallback(async (token: string) => {
+    setMeLoading(true);
+    try {
+      const data = await fetchMe(token);
+      if (data) {
+        setProfile(data.profile);
+        setOrg(data.org);
+        setRoster(data.roster ?? []);
       }
-    },
-    [localMode],
-  );
+    } finally {
+      setMeLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     const t = session?.access_token ?? null;
@@ -155,14 +120,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [session?.access_token, loadMe]);
 
   useEffect(() => {
-    if (localMode) {
-      const s = localGetSession();
-      if (s?.token) setAccessToken(s.token);
-      else setAccessToken(null);
-      setSession(localSessionFromStorage());
-      setLoading(false);
-      return;
-    }
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s);
       setLoading(false);
@@ -171,47 +128,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(s);
     });
     return () => sub.subscription.unsubscribe();
-  }, [localMode]);
+  }, []);
 
-  const signIn = useCallback(
-    async (email: string, password: string) => {
-      if (localMode) {
-        const r = localLogin(email, password);
-        if (r.error) return { error: new Error(r.error) };
-        setSession(localSessionFromStorage());
-        return { error: null };
-      }
-      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-      return { error: error as Error | null };
-    },
-    [localMode],
-  );
+  const signIn = useCallback(async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    return { error: error as Error | null };
+  }, []);
 
-  const signUp = useCallback(
-    async (email: string, password: string) => {
-      if (localMode) {
-        const r = localRegister(email, password);
-        if (r.error) return { error: new Error(r.error) };
-        setSession(localSessionFromStorage());
-        return { error: null };
-      }
-      const { error } = await supabase.auth.signUp({ email: email.trim(), password });
-      return { error: error as Error | null };
-    },
-    [localMode],
-  );
+  const signUp = useCallback(async (email: string, password: string) => {
+    const { error } = await supabase.auth.signUp({ email: email.trim(), password });
+    return { error: error as Error | null };
+  }, []);
 
   const signOut = useCallback(async () => {
-    if (localMode) {
-      localClearSession();
-      setSession(null);
-    } else {
-      await supabase.auth.signOut();
-    }
+    await supabase.auth.signOut();
     setProfile(null);
     setOrg(null);
     setRoster([]);
-  }, [localMode]);
+  }, []);
 
   const refreshMe = useCallback(async () => {
     const token = session?.access_token;
@@ -232,9 +166,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signUp,
       signOut,
       refreshMe,
-      localMode,
     }),
-    [session, profile, org, roster, loading, meLoading, signIn, signUp, signOut, refreshMe, localMode],
+    [session, profile, org, roster, loading, meLoading, signIn, signUp, signOut, refreshMe],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

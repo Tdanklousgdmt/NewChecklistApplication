@@ -1,7 +1,6 @@
 import { ChecklistVersion } from '../hooks/useAutosave';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { getAccessToken } from '../lib/authToken';
-import { isLocalMode, localApiFetch, localGetSession } from '../lib/localBackend';
 
 /**
  * API base (no trailing slash).
@@ -11,7 +10,6 @@ import { isLocalMode, localApiFetch, localGetSession } from '../lib/localBackend
  * We therefore ignore **relative** values and only honor absolute `http(s)://...` overrides.
  */
 function resolveApiBase(): string {
-  if (isLocalMode()) return 'local://e-check';
   const edge = `https://${projectId}.supabase.co/functions/v1/make-server-d5ac9b81`;
   const raw = import.meta.env.VITE_API_BASE_URL as string | undefined;
   if (raw === undefined || raw === null || String(raw).trim() === "") {
@@ -36,10 +34,7 @@ function resolveApiBase(): string {
 export const SERVER_URL = resolveApiBase();
 
 export function buildAuthHeaders(extra?: Record<string, string>): Record<string, string> {
-  let userJwt = getAccessToken();
-  if (!userJwt && isLocalMode()) {
-    userJwt = localGetSession()?.token ?? null;
-  }
+  const userJwt = getAccessToken();
   if (!userJwt) throw new Error('Not signed in');
   return {
     'Content-Type': 'application/json',
@@ -59,19 +54,6 @@ async function apiFetch(endpoint: string, options: RequestInit = {}) {
   };
 
   console.log(`[API] ${method} ${endpoint}`);
-
-  if (isLocalMode()) {
-    const response = await localApiFetch(method, endpoint, { ...options, headers });
-    const body = await response.json();
-    if (!response.ok) {
-      const errMsg = body?.error || body?.message || `HTTP ${response.status}`;
-      const err: any = new Error(errMsg);
-      err.status = response.status;
-      err.body = body;
-      throw err;
-    }
-    return body;
-  }
 
   const response = await fetch(`${SERVER_URL}${endpoint}`, {
     ...options,

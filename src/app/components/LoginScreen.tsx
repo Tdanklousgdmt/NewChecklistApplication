@@ -3,7 +3,7 @@ import { Loader2, CheckCheck } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
 export function LoginScreen() {
-  const { signIn, signUp, localMode } = useAuth();
+  const { signIn, signUp } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [mode, setMode] = useState<"signin" | "signup">("signin");
@@ -22,11 +22,7 @@ export function LoginScreen() {
         const { error } = await signUp(email, password);
         if (error) setMessage(error.message);
         else {
-          setMessage(
-            localMode
-              ? "Account created. Sign in with the same email and password."
-              : "Check your email to confirm your account, then sign in.",
-          );
+          setMessage("Check your email to confirm your account, then sign in.");
           setMode("signin");
         }
       }
@@ -46,11 +42,6 @@ export function LoginScreen() {
           <p className="text-sm text-gray-500 mt-2">Sign in to continue</p>
         </div>
 
-        {localMode && (
-          <p className="mb-4 text-xs text-center text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
-            Local mode: data stays in this browser only. Set <code className="font-mono">VITE_LOCAL_MODE=false</code> to use Supabase again.
-          </p>
-        )}
         <form onSubmit={submit} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
           <div>
             <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Email</label>
