@@ -1,5 +1,5 @@
 import * as jose from "jose";
-import * as kv from "./kv_store";
+import * as kv from "./kv_store.js";
 
 export type AppRole = "manager" | "user";
 

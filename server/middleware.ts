@@ -1,5 +1,5 @@
 import type { Context, Next } from "hono";
-import { loadRequestContext, toRequestContext, type RequestContext, type UserProfile } from "./context";
+import { loadRequestContext, toRequestContext, type RequestContext, type UserProfile } from "./context.js";
 
 export type Variables = {
   jwtPair: { jwt: { sub: string; email: string }; profile: UserProfile | null };

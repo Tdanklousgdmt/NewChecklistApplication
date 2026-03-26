@@ -1,9 +1,9 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
-import * as kv from "./kv_store";
-import checklistRoutes from "./checklist.routes";
-import authRoutes from "./auth.routes";
+import * as kv from "./kv_store.js";
+import checklistRoutes from "./checklist.routes.js";
+import authRoutes from "./auth.routes.js";
 
 const app = new Hono();
 

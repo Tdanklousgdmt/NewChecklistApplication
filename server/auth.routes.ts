@@ -1,8 +1,8 @@
 import { Hono } from "hono";
-import * as kv from "./kv_store";
-import type { AppRole, UserProfile } from "./context";
-import { getUserProfile } from "./context";
-import { authMiddleware, requireOnboardedMiddleware, type Variables } from "./middleware";
+import * as kv from "./kv_store.js";
+import type { AppRole, UserProfile } from "./context.js";
+import { getUserProfile } from "./context.js";
+import { authMiddleware, requireOnboardedMiddleware, type Variables } from "./middleware.js";
 
 const app = new Hono<{ Variables: Variables }>();
 app.use("*", authMiddleware);
