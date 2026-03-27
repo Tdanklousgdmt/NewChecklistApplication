@@ -13,7 +13,8 @@ export type Variables = {
 
 export async function authMiddleware(c: Context<{ Variables: Variables }>, next: Next) {
   const authHeader = c.req.header("Authorization");
-  const pair = await loadRequestContext(authHeader);
+  const apikeyHeader = c.req.header("apikey");
+  const pair = await loadRequestContext(authHeader, apikeyHeader, c.req.url);
   if (!pair) {
     return c.json({ error: "Unauthorized" }, 401);
   }

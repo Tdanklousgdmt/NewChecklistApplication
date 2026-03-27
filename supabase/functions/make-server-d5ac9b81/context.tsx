@@ -40,7 +40,42 @@ function jwtSigningSecret(): string | undefined {
   return s || undefined;
 }
 
-export async function verifySupabaseJwt(authHeader: string | undefined): Promise<{
+async function verifyViaSupabaseAuth(
+  token: string,
+  apikeyHeader: string | undefined,
+  requestUrl: string | undefined,
+): Promise<{ sub: string; email: string } | null> {
+  const anonKey = (apikeyHeader || Deno.env.get("SUPABASE_ANON_KEY") || "").trim();
+  if (!anonKey) return null;
+
+  const envUrl = Deno.env.get("SUPABASE_URL")?.trim();
+  const reqOrigin = requestUrl ? new URL(requestUrl).origin : undefined;
+  const projectUrl = envUrl || reqOrigin;
+  if (!projectUrl) return null;
+
+  try {
+    const res = await fetch(`${projectUrl}/auth/v1/user`, {
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!res.ok) return null;
+    const user = await res.json().catch(() => null);
+    const sub = typeof user?.id === "string" ? user.id : null;
+    if (!sub) return null;
+    const email = typeof user?.email === "string" ? user.email : "";
+    return { sub, email };
+  } catch {
+    return null;
+  }
+}
+
+export async function verifySupabaseJwt(
+  authHeader: string | undefined,
+  apikeyHeader?: string,
+  requestUrl?: string,
+): Promise<{
   sub: string;
   email: string;
 } | null> {
@@ -48,9 +83,14 @@ export async function verifySupabaseJwt(authHeader: string | undefined): Promise
   const token = authHeader.slice(7).trim();
   if (!token) return null;
 
+  const remote = await verifyViaSupabaseAuth(token, apikeyHeader, requestUrl);
+  if (remote) return remote;
+
   const secret = jwtSigningSecret();
   if (!secret) {
-    console.error("JWT secret not set — set SUPABASE_JWT_SECRET or APP_JWT_SECRET (Supabase API JWT Secret)");
+    console.error(
+      "JWT secret not set and remote auth verification unavailable — set SUPABASE_URL + SUPABASE_ANON_KEY or APP_JWT_SECRET",
+    );
     return null;
   }
 
@@ -82,8 +122,10 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
 
 export async function loadRequestContext(
   authHeader: string | undefined,
+  apikeyHeader?: string,
+  requestUrl?: string,
 ): Promise<{ jwt: { sub: string; email: string }; profile: UserProfile | null } | null> {
-  const jwt = await verifySupabaseJwt(authHeader);
+  const jwt = await verifySupabaseJwt(authHeader, apikeyHeader, requestUrl);
   if (!jwt) return null;
   const profile = await getUserProfile(jwt.sub);
   return { jwt, profile };
