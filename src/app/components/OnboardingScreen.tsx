@@ -14,7 +14,7 @@ type Preview = {
 const EDGE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-d5ac9b81`;
 
 export function OnboardingScreen() {
-  const { session, refreshMe } = useAuth();
+  const { session, refreshMe, supabase } = useAuth();
   const [mode, setMode] = useState<"choose" | "create" | "join">("choose");
   const [displayName, setDisplayName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
@@ -95,20 +95,31 @@ export function OnboardingScreen() {
               teamId,
               shiftId,
             };
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        apikey: publicAnonKey,
-      };
-      const res = await fetchWithFallback("/auth/onboarding", {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-      }).then(async (r) => ({
-        ok: r.ok,
-        status: r.status,
-        json: () => r.json().catch(() => ({})),
-      }));
+      const postOnboarding = async (jwt: string) =>
+        fetchWithFallback("/auth/onboarding", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${jwt}`,
+            apikey: publicAnonKey,
+          },
+          body: JSON.stringify(body),
+        }).then(async (r) => ({
+          ok: r.ok,
+          status: r.status,
+          json: () => r.json().catch(() => ({})),
+        }));
+
+      let res = await postOnboarding(token);
+      // Token may be expired in the browser; refresh once then retry.
+      if (!res.ok && res.status === 401) {
+        const refreshed = await supabase.auth.refreshSession();
+        const newToken = refreshed.data.session?.access_token;
+        if (newToken) {
+          res = await postOnboarding(newToken);
+        }
+      }
+
       const data = await res.json();
       if (!res.ok) {
         if (res.status === 401) {
