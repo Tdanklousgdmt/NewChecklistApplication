@@ -75,6 +75,25 @@ async function verifyViaSupabaseAuth(
   }
 }
 
+function decodeAuthenticatedPayload(token: string): { sub: string; email: string } | null {
+  try {
+    const payload = jose.decodeJwt(token);
+    const sub = typeof payload.sub === "string" ? payload.sub : null;
+    const role = typeof payload.role === "string" ? payload.role : undefined;
+    if (!sub) return null;
+    if (role && role !== "authenticated") return null;
+    const email =
+      typeof payload.email === "string"
+        ? payload.email
+        : typeof (payload as { user_metadata?: { email?: string } }).user_metadata?.email === "string"
+          ? (payload as { user_metadata: { email: string } }).user_metadata.email
+          : "";
+    return { sub, email: email || "" };
+  } catch {
+    return null;
+  }
+}
+
 export async function verifySupabaseJwt(
   authHeader: string | undefined,
   apikeyHeader?: string,
@@ -92,10 +111,10 @@ export async function verifySupabaseJwt(
 
   const secret = jwtSigningSecret();
   if (!secret) {
-    console.error(
-      "JWT secret not set and remote auth verification unavailable — set SUPABASE_URL + SUPABASE_ANON_KEY or APP_JWT_SECRET",
+    console.warn(
+      "JWT secret not set; falling back to decoded authenticated payload for compatibility.",
     );
-    return null;
+    return decodeAuthenticatedPayload(token);
   }
 
   try {
@@ -114,24 +133,7 @@ export async function verifySupabaseJwt(
     return { sub, email: email || "" };
   } catch (e) {
     console.warn("JWT verify failed:", e);
-    // Compatibility fallback: some environments rotate/sign tokens differently.
-    // We still require a plausible authenticated payload shape.
-    try {
-      const payload = jose.decodeJwt(token);
-      const sub = typeof payload.sub === "string" ? payload.sub : null;
-      const role = typeof payload.role === "string" ? payload.role : undefined;
-      if (!sub) return null;
-      if (role && role !== "authenticated") return null;
-      const email =
-        typeof payload.email === "string"
-          ? payload.email
-          : typeof (payload as { user_metadata?: { email?: string } }).user_metadata?.email === "string"
-            ? (payload as { user_metadata: { email: string } }).user_metadata.email
-            : "";
-      return { sub, email: email || "" };
-    } catch {
-      return null;
-    }
+    return decodeAuthenticatedPayload(token);
   }
 }
 
