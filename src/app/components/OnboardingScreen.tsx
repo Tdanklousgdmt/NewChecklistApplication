@@ -14,7 +14,7 @@ type Preview = {
 const EDGE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-d5ac9b81`;
 
 export function OnboardingScreen() {
-  const { session, refreshMe, supabase } = useAuth();
+  const { session, refreshMe, supabase, signOut } = useAuth();
   const [mode, setMode] = useState<"choose" | "create" | "join">("choose");
   const [displayName, setDisplayName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
@@ -207,9 +207,18 @@ export function OnboardingScreen() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-teal-50/30 flex items-center justify-center p-6">
       <div className="w-full max-w-md bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-        <button type="button" onClick={() => setMode("choose")} className="text-sm text-[#2abaad]">
-          ← Back
-        </button>
+        <div className="flex items-center justify-between">
+          <button type="button" onClick={() => setMode("choose")} className="text-sm text-[#2abaad]">
+            ← Back
+          </button>
+          <button
+            type="button"
+            onClick={() => void signOut()}
+            className="text-sm text-gray-500 hover:text-gray-700"
+          >
+            Sign out
+          </button>
+        </div>
         <h2 className="text-lg font-semibold text-gray-800">
           {mode === "create" ? "Create organization" : "Join organization"}
         </h2>
