@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
-import { publicAnonKey } from "/utils/supabase/info";
+import { projectId, publicAnonKey } from "/utils/supabase/info";
 import { useAuth } from "../context/AuthContext";
 import { SERVER_URL } from "../services/checklistService";
 
@@ -10,6 +10,8 @@ type Preview = {
   teams?: { id: string; name: string }[];
   shifts?: { id: string; name: string }[];
 };
+
+const EDGE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-d5ac9b81`;
 
 export function OnboardingScreen() {
   const { session, refreshMe } = useAuth();
@@ -25,6 +27,19 @@ export function OnboardingScreen() {
 
   const token = session?.access_token;
 
+  const fetchWithFallback = async (path: string, init?: RequestInit) => {
+    try {
+      return await fetch(`${SERVER_URL}${path}`, init);
+    } catch (firstError) {
+      // If a custom absolute API base is unreachable, retry against Supabase Edge.
+      if (SERVER_URL !== EDGE_URL) {
+        console.warn("Primary onboarding API unreachable, retrying Edge URL", firstError);
+        return await fetch(`${EDGE_URL}${path}`, init);
+      }
+      throw firstError;
+    }
+  };
+
   const lookupInvite = async () => {
     setError(null);
     const code = inviteCode.trim().toUpperCase();
@@ -34,7 +49,7 @@ export function OnboardingScreen() {
     }
     try {
       const path = `/invite-preview?code=${encodeURIComponent(code)}`;
-      const res = await fetch(`${SERVER_URL}${path}`).then(async (r) => ({
+      const res = await fetchWithFallback(path).then(async (r) => ({
         ok: r.ok,
         status: r.status,
         json: () => r.json(),
@@ -85,7 +100,7 @@ export function OnboardingScreen() {
         Authorization: `Bearer ${token}`,
         apikey: publicAnonKey,
       };
-      const res = await fetch(`${SERVER_URL}/auth/onboarding`, {
+      const res = await fetchWithFallback("/auth/onboarding", {
         method: "POST",
         headers,
         body: JSON.stringify(body),
