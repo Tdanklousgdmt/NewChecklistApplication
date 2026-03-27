@@ -130,6 +130,8 @@ export function OnboardingScreen() {
         return;
       }
       await refreshMe();
+      // Force a clean app state transition after onboarding write succeeds.
+      window.location.reload();
     } catch (e) {
       console.error("Onboarding submit failed:", e);
       setError("Could not reach server. Please try again.");
