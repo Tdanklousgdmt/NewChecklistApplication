@@ -1,6 +1,5 @@
 import { ChecklistVersion } from '../hooks/useAutosave';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
-import { getAccessToken } from '../lib/authToken';
 
 /**
  * API base (no trailing slash).
@@ -34,18 +33,16 @@ function resolveApiBase(): string {
 export const SERVER_URL = resolveApiBase();
 
 export function buildAuthHeaders(extra?: Record<string, string>): Record<string, string> {
-  const userJwt = getAccessToken();
-  if (!userJwt) throw new Error('Not signed in');
   return {
     'Content-Type': 'application/json',
     apikey: publicAnonKey,
-    Authorization: `Bearer ${userJwt}`,
+    Authorization: `Bearer ${publicAnonKey}`,
     ...extra,
   };
 }
 
 // ── Core API caller ────────────────────────────────────────────────────────────
-// Edge gateway: anon key + authenticated user JWT (role authenticated).
+// Edge gateway: anon key as apikey + Bearer (anonymous app mode; no user JWT).
 async function apiFetch(endpoint: string, options: RequestInit = {}) {
   const method = (options.method || 'GET').toUpperCase();
   const headers: Record<string, string> = {
@@ -77,13 +74,13 @@ async function apiFetch(endpoint: string, options: RequestInit = {}) {
   return body;
 }
 
-/** @deprecated use Supabase session + getAccessToken */
+/** @deprecated no-op — auth removed */
 export function setAuthToken(_token: string) {}
-/** @deprecated use signOut from AuthContext */
+/** @deprecated no-op — auth removed */
 export function clearAuthToken() {}
 /** @deprecated */
 export function getAuthStatus() {
-  return { hasToken: !!getAccessToken(), token: getAccessToken() };
+  return { hasToken: true, token: publicAnonKey };
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────

@@ -8,12 +8,9 @@ import { ChecklistExecution } from "./components/ChecklistExecution";
 import { ValidationScreen } from "./components/ValidationScreen";
 import { NavDrawer } from "./components/NavDrawer";
 import { QRScannerModal } from "./components/QRScannerModal";
-import { LoginScreen } from "./components/LoginScreen";
-import { AuthWelcomeRedirect } from "./components/AuthWelcomeRedirect";
-import { OnboardingScreen } from "./components/OnboardingScreen";
 import { UserManagementScreen } from "./components/UserManagementScreen";
 import { Toaster } from "sonner";
-import { useAuth } from "./context/AuthContext";
+import { useAppSession } from "./context/AppSessionContext";
 import { Loader2 } from "lucide-react";
 
 type AppView =
@@ -28,7 +25,7 @@ type AppView =
   | "users";
 
 export default function App() {
-  const { user, profile, loading, meLoading, signOut, roster, org } = useAuth();
+  const { profile, loading, roster, org, refreshMe } = useAppSession();
   const [view, setView] = useState<AppView>("dashboard");
   const [navOpen, setNavOpen] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -52,15 +49,6 @@ export default function App() {
     }
   }, []);
 
-  if (typeof window !== "undefined" && window.location.pathname.replace(/\/$/, "") === "/welcome") {
-    return (
-      <>
-        <AuthWelcomeRedirect />
-        <Toaster position="top-right" richColors />
-      </>
-    );
-  }
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -69,28 +57,19 @@ export default function App() {
     );
   }
 
-  if (!user) {
-    return (
-      <>
-        <LoginScreen />
-        <Toaster position="top-right" richColors />
-      </>
-    );
-  }
-
   if (!profile) {
-    if (meLoading) {
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-50">
-          <Loader2 className="w-10 h-10 text-[#2abaad] animate-spin" />
-        </div>
-      );
-    }
     return (
-      <>
-        <OnboardingScreen />
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-50 p-6">
+        <p className="text-gray-700 text-center max-w-md">Could not load workspace. Check your network and API URL.</p>
+        <button
+          type="button"
+          onClick={() => void refreshMe()}
+          className="px-4 py-2 rounded-xl bg-[#2abaad] text-white text-sm font-medium"
+        >
+          Retry
+        </button>
         <Toaster position="top-right" richColors />
-      </>
+      </div>
     );
   }
 
@@ -104,11 +83,6 @@ export default function App() {
     if (dest === "create") setView("create");
     else if (dest === "users") setView("users");
     else setView(dest);
-  };
-
-  const handleSignOut = () => {
-    void signOut();
-    setView("dashboard");
   };
 
   const handleQRResult = (checklistId: string) => {
@@ -140,7 +114,6 @@ export default function App() {
       currentView={view}
       role={role}
       onNavigate={handleNavNavigate}
-      onSignOut={handleSignOut}
       onOpenScanner={() => setScannerOpen(true)}
     />
   );

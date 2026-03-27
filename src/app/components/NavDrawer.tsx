@@ -21,7 +21,7 @@ interface NavDrawerProps {
   currentView: string;
   role: "user" | "manager";
   onNavigate: (view: View) => void;
-  onSignOut: () => void;
+  onSignOut?: () => void;
   onOpenScanner?: () => void;
 }
 
@@ -191,21 +191,22 @@ export function NavDrawer({
             </div>
           </div>
 
-          {/* Sign out */}
-          <button
-            type="button"
-            onClick={() => {
-              onSignOut();
-              onClose();
-            }}
-            className="flex items-center justify-between w-full px-3 py-2.5 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-800 transition-colors"
-          >
-            <span className="flex items-center gap-3">
-              <UserCircle className="w-5 h-5 text-gray-400 shrink-0" />
-              Sign out
-            </span>
-            <ChevronRight className="w-4 h-4 text-gray-400" />
-          </button>
+          {onSignOut ? (
+            <button
+              type="button"
+              onClick={() => {
+                onSignOut();
+                onClose();
+              }}
+              className="flex items-center justify-between w-full px-3 py-2.5 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-800 transition-colors"
+            >
+              <span className="flex items-center gap-3">
+                <UserCircle className="w-5 h-5 text-gray-400 shrink-0" />
+                Sign out
+              </span>
+              <ChevronRight className="w-4 h-4 text-gray-400" />
+            </button>
+          ) : null}
         </div>
       </div>
     </>

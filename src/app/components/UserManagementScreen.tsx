@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Users, Copy, RefreshCw } from "lucide-react";
 import { BurgerButton } from "./NavDrawer";
 import { toast } from "sonner";
-import { useAuth, type RosterEntry } from "../context/AuthContext";
+import { useAppSession, type RosterEntry } from "../context/AppSessionContext";
 import { checklistService } from "../services/checklistService";
 
 interface UserManagementScreenProps {
@@ -10,7 +10,7 @@ interface UserManagementScreenProps {
 }
 
 export function UserManagementScreen({ onOpenNav }: UserManagementScreenProps) {
-  const { org, roster, refreshMe, profile } = useAuth();
+  const { org, roster, refreshMe, profile } = useAppSession();
   const [localRoster, setLocalRoster] = useState<RosterEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
