@@ -252,6 +252,7 @@ app.get("/checklists", async (c) => {
       );
     }
 
+    // Deduplicate by id and keep newest first.
     checklists = checklists
       .filter((ch: any, i: number, arr: any[]) => arr.findIndex((x: any) => x.id === ch.id) === i)
       .sort((a: any, b: any) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));

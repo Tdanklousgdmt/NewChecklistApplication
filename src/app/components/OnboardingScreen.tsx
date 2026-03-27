@@ -58,7 +58,14 @@ export function OnboardingScreen() {
   };
 
   const submit = async () => {
-    if (!token) return;
+    if (!token) {
+      setError("Session expired. Please sign in again.");
+      return;
+    }
+    if (!displayName.trim()) {
+      setError("Please enter your name");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -99,6 +106,9 @@ export function OnboardingScreen() {
         return;
       }
       await refreshMe();
+    } catch (e) {
+      console.error("Onboarding submit failed:", e);
+      setError("Could not reach server. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -223,7 +233,7 @@ export function OnboardingScreen() {
 
         <button
           type="button"
-          disabled={busy || (mode === "join" && !preview?.valid)}
+          disabled={busy || !displayName.trim() || (mode === "join" && !preview?.valid)}
           onClick={() => void submit()}
           className="w-full py-3 rounded-xl bg-[#2abaad] text-white text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
         >
