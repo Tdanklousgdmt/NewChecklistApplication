@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { createClient, type Session } from "@supabase/supabase-js";
+import { createClient, type Session, type User } from "@supabase/supabase-js";
 import { projectId, publicAnonKey } from "/utils/supabase/info";
 import { setAccessToken } from "../lib/authToken";
 import { SERVER_URL } from "../services/checklistService";
@@ -55,7 +55,12 @@ type MeResponse = {
 };
 
 const supabase = createClient(`https://${projectId}.supabase.co`, publicAnonKey, {
-  auth: { persistSession: true, autoRefreshToken: true },
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    flowType: "pkce",
+    detectSessionInUrl: true,
+  },
 });
 
 type AuthContextValue = {
@@ -69,8 +74,10 @@ type AuthContextValue = {
   meLoading: boolean;
   /** Envoie un code OTP par e-mail ; enregistre prénom / nom dans user_metadata (création ou mise à jour). */
   sendEmailOtp: (email: string, prenom: string, nom: string) => Promise<{ error: Error | null }>;
-  /** Vérifie le code reçu par e-mail (6 chiffres). */
+  /** Vérifie un code à 6 chiffres (si Supabase envoie un OTP ; sinon utiliser le lien magique). */
   verifyEmailOtp: (email: string, token: string) => Promise<{ error: Error | null }>;
+  /** Après clic sur le lien magique dans l’e-mail, relit la session (même onglet / retour sur l’app). */
+  syncSessionFromUrl: () => Promise<{ session: Session | null; error: Error | null }>;
   signOut: () => Promise<void>;
   refreshMe: () => Promise<void>;
 };
@@ -153,11 +160,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const p = prenom.trim();
     const n = nom.trim();
     const full = [p, n].filter(Boolean).join(" ").trim();
+    const emailRedirectTo =
+      typeof window === "undefined"
+        ? undefined
+        : (import.meta.env.VITE_AUTH_REDIRECT_URL as string | undefined)?.trim() ||
+          `${window.location.origin}/welcome`;
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
       options: {
         shouldCreateUser: true,
-        emailRedirectTo: typeof window !== "undefined" ? `${window.location.origin}/` : undefined,
+        emailRedirectTo,
         data: {
           prenom: p,
           nom: n,
@@ -176,6 +188,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       type: "email",
     });
     return { error: error as Error | null };
+  }, []);
+
+  const syncSessionFromUrl = useCallback(async () => {
+    if (typeof window === "undefined") return { session: null, error: null };
+    const url = new URL(window.location.href);
+    const code = url.searchParams.get("code");
+    if (code) {
+      const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+      if (error) return { session: null, error: error as Error };
+      url.searchParams.delete("code");
+      const clean = `${url.pathname}${url.search}${url.hash}` || "/";
+      window.history.replaceState({}, document.title, clean);
+      return { session: data.session, error: null };
+    }
+    const { data, error } = await supabase.auth.getSession();
+    return { session: data.session ?? null, error: error as Error | null };
   }, []);
 
   const signOut = useCallback(async () => {
@@ -202,10 +230,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       meLoading,
       sendEmailOtp,
       verifyEmailOtp,
+      syncSessionFromUrl,
       signOut,
       refreshMe,
     }),
-    [session, profile, org, roster, loading, meLoading, sendEmailOtp, verifyEmailOtp, signOut, refreshMe],
+    [session, profile, org, roster, loading, meLoading, sendEmailOtp, verifyEmailOtp, syncSessionFromUrl, signOut, refreshMe],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -9,6 +9,7 @@ import { ValidationScreen } from "./components/ValidationScreen";
 import { NavDrawer } from "./components/NavDrawer";
 import { QRScannerModal } from "./components/QRScannerModal";
 import { LoginScreen } from "./components/LoginScreen";
+import { AuthWelcomeRedirect } from "./components/AuthWelcomeRedirect";
 import { OnboardingScreen } from "./components/OnboardingScreen";
 import { UserManagementScreen } from "./components/UserManagementScreen";
 import { Toaster } from "sonner";
@@ -50,6 +51,15 @@ export default function App() {
       setView("execute");
     }
   }, []);
+
+  if (typeof window !== "undefined" && window.location.pathname.replace(/\/$/, "") === "/welcome") {
+    return (
+      <>
+        <AuthWelcomeRedirect />
+        <Toaster position="top-right" richColors />
+      </>
+    );
+  }
 
   if (loading) {
     return (

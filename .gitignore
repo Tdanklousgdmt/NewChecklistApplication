@@ -26,6 +26,9 @@ pnpm-debug.log*
 *.sln
 *.sw?
 
+# Supabase CLI local cache
+supabase/.temp/
+
 # OS
 .DS_Store
 Thumbs.db
