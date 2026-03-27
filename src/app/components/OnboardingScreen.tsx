@@ -40,6 +40,22 @@ export function OnboardingScreen() {
     }
   };
 
+  const hasProfileReady = async (jwt: string): Promise<boolean> => {
+    try {
+      const res = await fetchWithFallback("/auth/me", {
+        headers: {
+          Authorization: `Bearer ${jwt}`,
+          apikey: publicAnonKey,
+        },
+      });
+      if (!res.ok) return false;
+      const data = await res.json().catch(() => null);
+      return !!data?.profile;
+    } catch {
+      return false;
+    }
+  };
+
   const lookupInvite = async () => {
     setError(null);
     const code = inviteCode.trim().toUpperCase();
@@ -121,7 +137,8 @@ export function OnboardingScreen() {
       }
 
       const data = await res.json();
-      if (!res.ok) {
+      const alreadyOnboarded = !res.ok && res.status === 400 && data?.error === "Already onboarded";
+      if (!res.ok && !alreadyOnboarded) {
         if (res.status === 401) {
           setError("Session verification failed (401). Please sign out, sign in again, then retry.");
         } else {
@@ -129,9 +146,27 @@ export function OnboardingScreen() {
         }
         return;
       }
+
+      // Wait until /auth/me sees the profile, then refresh app state.
+      let ready = false;
+      let currentToken = token;
+      for (let i = 0; i < 6; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        const refreshed = await supabase.auth.getSession();
+        currentToken = refreshed.data.session?.access_token || currentToken;
+        // eslint-disable-next-line no-await-in-loop
+        ready = await hasProfileReady(currentToken);
+        if (ready) break;
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((r) => setTimeout(r, 350));
+      }
+
       await refreshMe();
-      // Force a clean app state transition after onboarding write succeeds.
-      window.location.reload();
+      if (ready) {
+        window.location.reload();
+      } else {
+        setError("Organization created, but profile sync is delayed. Please click Continue again.");
+      }
     } catch (e) {
       console.error("Onboarding submit failed:", e);
       setError("Could not reach server. Please try again.");
