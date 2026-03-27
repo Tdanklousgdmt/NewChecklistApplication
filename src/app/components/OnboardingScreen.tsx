@@ -123,9 +123,7 @@ export function OnboardingScreen() {
       const data = await res.json();
       if (!res.ok) {
         if (res.status === 401) {
-          setError(
-            "Could not verify your session (401). Set the JWT signing secret on your API: in Supabase → Edge Functions → secrets use SUPABASE_JWT_SECRET or APP_JWT_SECRET (value = Project Settings → API → JWT Secret), then redeploy. On Vercel you cannot add SUPABASE_* secrets — use APP_JWT_SECRET for the Node API instead.",
-          );
+          setError("Session verification failed (401). Please sign out, sign in again, then retry.");
         } else {
           setError(data.error || `Error ${res.status}`);
         }

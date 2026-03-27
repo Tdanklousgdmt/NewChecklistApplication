@@ -1,6 +1,10 @@
 import * as jose from "npm:jose@5.9.6";
 import * as kv from "./kv_store.tsx";
 
+const FALLBACK_SUPABASE_URL = "https://hchmskxcjgfscummckcp.supabase.co";
+const FALLBACK_SUPABASE_ANON_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhjaG1za3hjamdmc2N1bW1ja2NwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2NjM4MDgsImV4cCI6MjA4OTIzOTgwOH0.iZtBd0sarM6llBv3xmJeB5kFqzgWwK1abOVpiPwAbL0";
+
 export type AppRole = "manager" | "user";
 
 export type UserProfile = {
@@ -45,12 +49,12 @@ async function verifyViaSupabaseAuth(
   apikeyHeader: string | undefined,
   requestUrl: string | undefined,
 ): Promise<{ sub: string; email: string } | null> {
-  const anonKey = (apikeyHeader || Deno.env.get("SUPABASE_ANON_KEY") || "").trim();
+  const anonKey = (apikeyHeader || Deno.env.get("SUPABASE_ANON_KEY") || FALLBACK_SUPABASE_ANON_KEY || "").trim();
   if (!anonKey) return null;
 
   const envUrl = Deno.env.get("SUPABASE_URL")?.trim();
   const reqOrigin = requestUrl ? new URL(requestUrl).origin : undefined;
-  const projectUrl = envUrl || reqOrigin;
+  const projectUrl = envUrl || reqOrigin || FALLBACK_SUPABASE_URL;
   if (!projectUrl) return null;
 
   try {
