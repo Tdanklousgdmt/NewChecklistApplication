@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { createClient, type Session, type User } from "@supabase/supabase-js";
+import { createClient, type Session } from "@supabase/supabase-js";
 import { projectId, publicAnonKey } from "/utils/supabase/info";
 import { setAccessToken } from "../lib/authToken";
 import { SERVER_URL } from "../services/checklistService";
@@ -67,23 +67,37 @@ type AuthContextValue = {
   roster: RosterEntry[];
   loading: boolean;
   meLoading: boolean;
-  signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
+  /** Envoie un code OTP par e-mail ; enregistre prénom / nom dans user_metadata (création ou mise à jour). */
+  sendEmailOtp: (email: string, prenom: string, nom: string) => Promise<{ error: Error | null }>;
+  /** Vérifie le code reçu par e-mail (6 chiffres). */
+  verifyEmailOtp: (email: string, token: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   refreshMe: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+/** Same default as checklistService — used if SERVER_URL misconfigured on Vercel. */
+const EDGE_API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-d5ac9b81`;
+
 async function fetchMe(accessToken: string): Promise<MeResponse | null> {
-  const res = await fetch(`${SERVER_URL}/auth/me`, {
-    headers: {
-      apikey: publicAnonKey,
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
-  if (!res.ok) return null;
-  return res.json();
+  const tryBase = async (base: string) => {
+    const b = base.replace(/\/$/, "");
+    const res = await fetch(`${b}/auth/me`, {
+      headers: {
+        apikey: publicAnonKey,
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+    if (!res.ok) return null;
+    return res.json() as Promise<MeResponse>;
+  };
+
+  let data = await tryBase(SERVER_URL);
+  if (!data && SERVER_URL !== EDGE_API_BASE) {
+    data = await tryBase(EDGE_API_BASE);
+  }
+  return data;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -97,7 +111,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loadMe = useCallback(async (token: string) => {
     setMeLoading(true);
     try {
-      const data = await fetchMe(token);
+      let data = await fetchMe(token);
+      if (!data) {
+        const { data: refreshed } = await supabase.auth.refreshSession();
+        const t = refreshed.session?.access_token;
+        if (t) data = await fetchMe(t);
+      }
       if (data) {
         setProfile(data.profile);
         setOrg(data.org);
@@ -130,13 +149,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  const signIn = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+  const sendEmailOtp = useCallback(async (email: string, prenom: string, nom: string) => {
+    const p = prenom.trim();
+    const n = nom.trim();
+    const full = [p, n].filter(Boolean).join(" ").trim();
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: {
+        shouldCreateUser: true,
+        emailRedirectTo: typeof window !== "undefined" ? `${window.location.origin}/` : undefined,
+        data: {
+          prenom: p,
+          nom: n,
+          full_name: full || undefined,
+        },
+      },
+    });
     return { error: error as Error | null };
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email: email.trim(), password });
+  const verifyEmailOtp = useCallback(async (email: string, token: string) => {
+    const clean = token.replace(/\D/g, "").slice(0, 8);
+    const { error } = await supabase.auth.verifyOtp({
+      email: email.trim(),
+      token: clean,
+      type: "email",
+    });
     return { error: error as Error | null };
   }, []);
 
@@ -162,12 +200,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       roster,
       loading,
       meLoading,
-      signIn,
-      signUp,
+      sendEmailOtp,
+      verifyEmailOtp,
       signOut,
       refreshMe,
     }),
-    [session, profile, org, roster, loading, meLoading, signIn, signUp, signOut, refreshMe],
+    [session, profile, org, roster, loading, meLoading, sendEmailOtp, verifyEmailOtp, signOut, refreshMe],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

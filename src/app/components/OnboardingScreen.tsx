@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import { projectId, publicAnonKey } from "/utils/supabase/info";
 import { useAuth } from "../context/AuthContext";
@@ -13,8 +13,19 @@ type Preview = {
 
 const EDGE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-d5ac9b81`;
 
+function displayNameFromAuthMetadata(user: { user_metadata?: Record<string, unknown> } | null): string {
+  if (!user?.user_metadata) return "";
+  const m = user.user_metadata;
+  const p = typeof m.prenom === "string" ? m.prenom.trim() : "";
+  const n = typeof m.nom === "string" ? m.nom.trim() : "";
+  const combined = [p, n].filter(Boolean).join(" ").trim();
+  if (combined) return combined;
+  if (typeof m.full_name === "string" && m.full_name.trim()) return m.full_name.trim();
+  return "";
+}
+
 export function OnboardingScreen() {
-  const { session, refreshMe, supabase, signOut } = useAuth();
+  const { session, user, refreshMe, supabase, signOut } = useAuth();
   const [mode, setMode] = useState<"choose" | "create" | "join">("choose");
   const [displayName, setDisplayName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
@@ -26,6 +37,11 @@ export function OnboardingScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const token = session?.access_token;
+
+  useEffect(() => {
+    const fromMeta = displayNameFromAuthMetadata(user);
+    if (fromMeta) setDisplayName((prev) => (prev.trim() ? prev : fromMeta));
+  }, [user]);
 
   const fetchWithFallback = async (path: string, init?: RequestInit) => {
     try {
