@@ -1,6 +1,6 @@
 import { ChecklistVersion } from '../hooks/useAutosave';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
-import { getAccessToken } from '../lib/authToken';
+import { getAppRole, type AppRole } from '../lib/appRole';
 
 /**
  * API base (no trailing slash). Set `VITE_API_BASE_URL=/api` on Vercel to use the bundled serverless API.
@@ -16,13 +16,14 @@ function resolveApiBase(): string {
 
 export const SERVER_URL = resolveApiBase();
 
-export function buildAuthHeaders(extra?: Record<string, string>): Record<string, string> {
-  const userJwt = getAccessToken();
-  if (!userJwt) throw new Error('Not signed in');
+export function buildAuthHeaders(extra?: Record<string, string>, roleOverride?: AppRole): Record<string, string> {
+  const role = roleOverride ?? getAppRole();
+  if (!role) throw new Error('No role selected');
   return {
     'Content-Type': 'application/json',
     apikey: publicAnonKey,
-    Authorization: `Bearer ${userJwt}`,
+    Authorization: `Bearer ${publicAnonKey}`,
+    'X-App-Role': role,
     ...extra,
   };
 }
@@ -62,13 +63,13 @@ async function apiFetch(endpoint: string, options: RequestInit = {}) {
   return body;
 }
 
-/** @deprecated use Supabase session + getAccessToken */
+/** @deprecated no user JWT in role-picker mode */
 export function setAuthToken(_token: string) {}
-/** @deprecated use signOut from AuthContext */
+/** @deprecated use clearAppRole from appRole */
 export function clearAuthToken() {}
 /** @deprecated */
 export function getAuthStatus() {
-  return { hasToken: !!getAccessToken(), token: getAccessToken() };
+  return { hasToken: !!getAppRole(), token: null as string | null };
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────

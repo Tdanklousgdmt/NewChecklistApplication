@@ -8,12 +8,10 @@ import { ChecklistExecution } from "./components/ChecklistExecution";
 import { ValidationScreen } from "./components/ValidationScreen";
 import { NavDrawer } from "./components/NavDrawer";
 import { QRScannerModal } from "./components/QRScannerModal";
-import { LoginScreen } from "./components/LoginScreen";
-import { OnboardingScreen } from "./components/OnboardingScreen";
-import { UserManagementScreen } from "./components/UserManagementScreen";
+import { RoleSelection } from "./components/RoleSelection";
 import { Toaster } from "sonner";
-import { useAuth } from "./context/AuthContext";
-import { Loader2 } from "lucide-react";
+import { getAppRole, setAppRole, clearAppRole, type AppRole } from "./lib/appRole";
+import { DEMO_USER_MANAGER, DEMO_USER_OPERATOR } from "./lib/demoUsers";
 
 type AppView =
   | "dashboard"
@@ -23,11 +21,10 @@ type AppView =
   | "view"
   | "library"
   | "checklist-detail"
-  | "reports"
-  | "users";
+  | "reports";
 
 export default function App() {
-  const { user, profile, loading, meLoading, signOut, roster, org } = useAuth();
+  const [role, setRole] = useState<AppRole | null>(() => getAppRole());
   const [view, setView] = useState<AppView>("dashboard");
   const [navOpen, setNavOpen] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -37,7 +34,11 @@ export default function App() {
   const [activeRedoSubmissionId, setActiveRedoSubmissionId] = useState<string | null>(null);
   const [activeSubmissionId, setActiveSubmissionId] = useState<string | null>(null);
 
-  const role = profile?.appRole ?? "user";
+  useEffect(() => {
+    const onRole = () => setRole(getAppRole());
+    window.addEventListener("echeck-role-change", onRole);
+    return () => window.removeEventListener("echeck-role-change", onRole);
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -51,34 +52,22 @@ export default function App() {
     }
   }, []);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <Loader2 className="w-10 h-10 text-[#2abaad] animate-spin" />
-      </div>
-    );
-  }
+  const notificationUserId = role === "manager" ? DEMO_USER_MANAGER : DEMO_USER_OPERATOR;
 
-  if (!user) {
+  const handleSelectRole = (r: AppRole) => {
+    setAppRole(r);
+    setRole(r);
+    setView("dashboard");
+    setActiveChecklistId(null);
+    setActiveAssignmentId(null);
+    setActiveRedoSubmissionId(null);
+    setActiveSubmissionId(null);
+  };
+
+  if (!role) {
     return (
       <>
-        <LoginScreen />
-        <Toaster position="top-right" richColors />
-      </>
-    );
-  }
-
-  if (!profile) {
-    if (meLoading) {
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-50">
-          <Loader2 className="w-10 h-10 text-[#2abaad] animate-spin" />
-        </div>
-      );
-    }
-    return (
-      <>
-        <OnboardingScreen />
+        <RoleSelection onSelectRole={handleSelectRole} />
         <Toaster position="top-right" richColors />
       </>
     );
@@ -86,19 +75,23 @@ export default function App() {
 
   const openNav = () => setNavOpen(true);
 
-  const handleNavNavigate = (dest: "dashboard" | "library" | "create" | "reports" | "users") => {
+  const handleNavNavigate = (dest: "dashboard" | "library" | "create" | "reports") => {
     setActiveChecklistId(null);
     setActiveAssignmentId(null);
     setActiveRedoSubmissionId(null);
     setActiveSubmissionId(null);
     if (dest === "create") setView("create");
-    else if (dest === "users") setView("users");
     else setView(dest);
   };
 
-  const handleSignOut = () => {
-    void signOut();
+  const handleSwitchRole = () => {
+    clearAppRole();
+    setRole(null);
     setView("dashboard");
+    setActiveChecklistId(null);
+    setActiveAssignmentId(null);
+    setActiveRedoSubmissionId(null);
+    setActiveSubmissionId(null);
   };
 
   const handleQRResult = (checklistId: string) => {
@@ -109,20 +102,6 @@ export default function App() {
     setView("execute");
   };
 
-  const managerRoster = roster.map((r) => ({
-    userId: r.userId,
-    displayName: r.displayName,
-    email: r.email,
-    appRole: r.appRole,
-  }));
-
-  const assignRosterUsers = roster.map((r) => ({
-    id: r.userId,
-    name: r.displayName || r.email || r.userId,
-  }));
-
-  const assignTeamOptions = (org?.teams ?? []).map((t) => ({ id: t.id, name: t.name }));
-
   const navDrawer = (
     <NavDrawer
       open={navOpen}
@@ -130,7 +109,7 @@ export default function App() {
       currentView={view}
       role={role}
       onNavigate={handleNavNavigate}
-      onSignOut={handleSignOut}
+      onSwitchRole={handleSwitchRole}
       onOpenScanner={() => setScannerOpen(true)}
     />
   );
@@ -138,17 +117,6 @@ export default function App() {
   const qrScanner = scannerOpen && (
     <QRScannerModal onClose={() => setScannerOpen(false)} onResult={handleQRResult} />
   );
-
-  if (view === "users") {
-    return (
-      <>
-        {navDrawer}
-        {qrScanner}
-        <UserManagementScreen onOpenNav={openNav} />
-        <Toaster position="top-right" richColors />
-      </>
-    );
-  }
 
   if (view === "execute" && activeChecklistId) {
     return (
@@ -212,9 +180,6 @@ export default function App() {
             setActiveChecklistId(null);
           }}
           onOpenNav={openNav}
-          managerRoster={managerRoster}
-          assignRosterUsers={assignRosterUsers}
-          assignTeamOptions={assignTeamOptions}
         />
         <Toaster position="top-right" richColors />
       </>
@@ -283,9 +248,9 @@ export default function App() {
       {navDrawer}
       {qrScanner}
       <ChecklistDashboardReal
-        key={profile.userId}
+        key={notificationUserId}
         role={role}
-        notificationUserId={profile.userId}
+        notificationUserId={notificationUserId}
         onCreateNew={() => setView("create")}
         onExecuteChecklist={(checklistId, assignmentId, redoSubmissionId) => {
           setActiveChecklistId(checklistId);
