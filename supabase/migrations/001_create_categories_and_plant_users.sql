@@ -1,6 +1,12 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Migration 001: Create categories and plant_users tables
 -- Run this in the Supabase Dashboard → SQL Editor → New Query → Run
+--
+-- Without this, the browser gets HTTP 404 on:
+--   GET /rest/v1/categories
+--   GET /rest/v1/plant_users
+-- (PostgREST: relation not in schema cache.)
+-- Or set VITE_SKIP_DIRECT_DB_TABLES=true in the frontend to skip those calls.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- ── Categories ────────────────────────────────────────────────────────────────
