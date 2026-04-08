@@ -8,11 +8,11 @@ import { ChecklistExecution } from "./components/ChecklistExecution";
 import { ValidationScreen } from "./components/ValidationScreen";
 import { NavDrawer } from "./components/NavDrawer";
 import { QRScannerModal } from "./components/QRScannerModal";
+import { RoleSelection } from "./components/RoleSelection";
 import { UserManagementScreen } from "./components/UserManagementScreen";
 import { Toaster } from "sonner";
-import { useAppSession } from "./context/AppSessionContext";
-import { Loader2 } from "lucide-react";
-
+import { getStoredAppRole, setAppRole, clearAppRole, type AppRole } from "./lib/appRole";
+import { DEMO_MANAGER_USER_ID, DEMO_OPERATOR_USER_ID } from "./lib/demoWorkspaceIds";
 type AppView =
   | "dashboard"
   | "create"
@@ -25,7 +25,7 @@ type AppView =
   | "users";
 
 export default function App() {
-  const { profile, loading, roster, org, refreshMe, sessionError } = useAppSession();
+  const [role, setRole] = useState<AppRole | null>(() => getStoredAppRole());
   const [view, setView] = useState<AppView>("dashboard");
   const [navOpen, setNavOpen] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -35,7 +35,11 @@ export default function App() {
   const [activeRedoSubmissionId, setActiveRedoSubmissionId] = useState<string | null>(null);
   const [activeSubmissionId, setActiveSubmissionId] = useState<string | null>(null);
 
-  const role = profile?.appRole ?? "user";
+  useEffect(() => {
+    const onChange = () => setRole(getStoredAppRole());
+    window.addEventListener("echeck-role-change", onChange);
+    return () => window.removeEventListener("echeck-role-change", onChange);
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -49,34 +53,62 @@ export default function App() {
     }
   }, []);
 
-  if (loading) {
+  const handleSelectRole = (r: AppRole) => {
+    setAppRole(r);
+    setRole(r);
+    setView("dashboard");
+    setActiveChecklistId(null);
+    setActiveAssignmentId(null);
+    setActiveRedoSubmissionId(null);
+    setActiveSubmissionId(null);
+  };
+
+  const handleSwitchRole = () => {
+    clearAppRole();
+    setRole(null);
+    setView("dashboard");
+    setActiveChecklistId(null);
+    setActiveAssignmentId(null);
+    setActiveRedoSubmissionId(null);
+    setActiveSubmissionId(null);
+  };
+
+  if (role === null) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <Loader2 className="w-10 h-10 text-[#2abaad] animate-spin" />
-      </div>
+      <>
+        <RoleSelection onSelectRole={handleSelectRole} />
+        <Toaster position="top-right" richColors />
+      </>
     );
   }
 
-  if (!profile) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-50 p-6">
-        <p className="text-gray-700 text-center max-w-md font-medium">Could not load workspace</p>
-        {sessionError ? (
-          <p className="text-sm text-gray-600 text-center max-w-lg whitespace-pre-wrap">{sessionError}</p>
-        ) : (
-          <p className="text-sm text-gray-500 text-center max-w-md">Check your network and API URL.</p>
-        )}
-        <button
-          type="button"
-          onClick={() => void refreshMe()}
-          className="px-4 py-2 rounded-xl bg-[#2abaad] text-white text-sm font-medium"
-        >
-          Retry
-        </button>
-        <Toaster position="top-right" richColors />
-      </div>
-    );
-  }
+  const notificationUserId = role === "manager" ? DEMO_MANAGER_USER_ID : DEMO_OPERATOR_USER_ID;
+
+  const managerRoster = [
+    {
+      userId: DEMO_MANAGER_USER_ID,
+      displayName: "Guest (Manager)",
+      email: "anonymous@local",
+      appRole: "manager" as const,
+    },
+    {
+      userId: DEMO_OPERATOR_USER_ID,
+      displayName: "Operator",
+      email: "operator@local",
+      appRole: "user" as const,
+    },
+  ];
+
+  const assignRosterUsers = [
+    { id: DEMO_OPERATOR_USER_ID, name: "Operator" },
+    { id: DEMO_MANAGER_USER_ID, name: "Guest (Manager)" },
+  ];
+
+  const assignTeamOptions = [
+    { id: "TM_SAFETY", name: "Safety Team" },
+    { id: "TM_MAINT", name: "Maintenance Team" },
+    { id: "TM_OPS", name: "Operations Team" },
+  ];
 
   const openNav = () => setNavOpen(true);
 
@@ -98,20 +130,6 @@ export default function App() {
     setView("execute");
   };
 
-  const managerRoster = roster.map((r) => ({
-    userId: r.userId,
-    displayName: r.displayName,
-    email: r.email,
-    appRole: r.appRole,
-  }));
-
-  const assignRosterUsers = roster.map((r) => ({
-    id: r.userId,
-    name: r.displayName || r.email || r.userId,
-  }));
-
-  const assignTeamOptions = (org?.teams ?? []).map((t) => ({ id: t.id, name: t.name }));
-
   const navDrawer = (
     <NavDrawer
       open={navOpen}
@@ -119,6 +137,7 @@ export default function App() {
       currentView={view}
       role={role}
       onNavigate={handleNavNavigate}
+      onSignOut={handleSwitchRole}
       onOpenScanner={() => setScannerOpen(true)}
     />
   );
@@ -132,7 +151,7 @@ export default function App() {
       <>
         {navDrawer}
         {qrScanner}
-        <UserManagementScreen onOpenNav={openNav} />
+        <UserManagementScreen onOpenNav={openNav} appRole={role} />
         <Toaster position="top-right" richColors />
       </>
     );
@@ -271,9 +290,9 @@ export default function App() {
       {navDrawer}
       {qrScanner}
       <ChecklistDashboardReal
-        key={profile.userId}
+        key={notificationUserId}
         role={role}
-        notificationUserId={profile.userId}
+        notificationUserId={notificationUserId}
         onCreateNew={() => setView("create")}
         onExecuteChecklist={(checklistId, assignmentId, redoSubmissionId) => {
           setActiveChecklistId(checklistId);

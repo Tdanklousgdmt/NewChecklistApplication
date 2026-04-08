@@ -2,15 +2,37 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Users, Copy, RefreshCw } from "lucide-react";
 import { BurgerButton } from "./NavDrawer";
 import { toast } from "sonner";
-import { useAppSession, type RosterEntry } from "../context/AppSessionContext";
 import { checklistService } from "../services/checklistService";
+import type { AppRole } from "../lib/appRole";
+import { DEMO_MANAGER_USER_ID } from "../lib/demoWorkspaceIds";
+
+export type RosterEntry = {
+  userId: string;
+  email: string;
+  displayName: string;
+  siteLocationId: string;
+  teamId: string;
+  shiftId: string;
+  appRole: AppRole;
+  updatedAt: number;
+};
+
+type TenantOrg = {
+  tenantId: string;
+  teams: { id: string; name: string }[];
+  shifts: { id: string; name: string }[];
+  siteLocations: { id: string; label: string }[];
+  inviteCode: string;
+  updatedAt: number;
+};
 
 interface UserManagementScreenProps {
   onOpenNav?: () => void;
+  appRole: AppRole;
 }
 
-export function UserManagementScreen({ onOpenNav }: UserManagementScreenProps) {
-  const { org, roster, refreshMe, profile } = useAppSession();
+export function UserManagementScreen({ onOpenNav, appRole }: UserManagementScreenProps) {
+  const [org, setOrg] = useState<TenantOrg | null>(null);
   const [localRoster, setLocalRoster] = useState<RosterEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -18,19 +40,24 @@ export function UserManagementScreen({ onOpenNav }: UserManagementScreenProps) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      await refreshMe();
+      const [settingsRes, rosterRes] = await Promise.all([
+        checklistService.getOrgSettings(),
+        checklistService.getOrgRoster(),
+      ]);
+      setOrg((settingsRes.org as TenantOrg) ?? null);
+      setLocalRoster((rosterRes.roster ?? []) as RosterEntry[]);
+    } catch (e: any) {
+      toast.error(e?.message || "Could not load org");
+      setOrg(null);
+      setLocalRoster([]);
     } finally {
       setLoading(false);
     }
-  }, [refreshMe]);
+  }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
-
-  useEffect(() => {
-    setLocalRoster(roster);
-  }, [roster]);
 
   const locLabel = useMemo(() => {
     const m = new Map((org?.siteLocations ?? []).map((l) => [l.id, l.label]));
@@ -60,7 +87,7 @@ export function UserManagementScreen({ onOpenNav }: UserManagementScreenProps) {
       setLocalRoster((prev) =>
         prev.map((r) => (r.userId === userId ? { ...r, ...patch, updatedAt: Date.now() } : r)),
       );
-      await refreshMe();
+      await load();
       toast.success("Saved");
     } catch (e: any) {
       toast.error(e?.message || "Save failed");
@@ -79,14 +106,14 @@ export function UserManagementScreen({ onOpenNav }: UserManagementScreenProps) {
   const regenInvite = async () => {
     try {
       await checklistService.regenerateInvite();
-      await refreshMe();
+      await load();
       toast.success("New invite code generated");
     } catch (e: any) {
       toast.error(e?.message || "Failed");
     }
   };
 
-  if (profile?.appRole !== "manager") {
+  if (appRole !== "manager") {
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
         <p className="text-sm text-gray-500">Managers only.</p>
@@ -173,9 +200,9 @@ export function UserManagementScreen({ onOpenNav }: UserManagementScreenProps) {
                     <td className="px-3 py-2 align-top">
                       <select
                         value={r.appRole}
-                        disabled={r.userId === profile?.userId || savingId === r.userId}
+                        disabled={r.userId === DEMO_MANAGER_USER_ID || savingId === r.userId}
                         onChange={(e) =>
-                          void updateRow(r.userId, { appRole: e.target.value as "manager" | "user" })
+                          void updateRow(r.userId, { appRole: e.target.value as AppRole })
                         }
                         className="px-2 py-1 rounded-lg border border-gray-200 text-sm"
                       >

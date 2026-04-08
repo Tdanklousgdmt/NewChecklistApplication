@@ -202,7 +202,7 @@ export function NavDrawer({
             >
               <span className="flex items-center gap-3">
                 <UserCircle className="w-5 h-5 text-gray-400 shrink-0" />
-                Sign out
+                Switch role
               </span>
               <ChevronRight className="w-4 h-4 text-gray-400" />
             </button>

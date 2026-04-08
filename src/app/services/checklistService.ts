@@ -1,5 +1,6 @@
 import { ChecklistVersion } from '../hooks/useAutosave';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { getAppRole } from '../lib/appRole';
 
 /**
  * API base (no trailing slash).
@@ -37,6 +38,7 @@ export function buildAuthHeaders(extra?: Record<string, string>): Record<string,
     'Content-Type': 'application/json',
     apikey: publicAnonKey,
     Authorization: `Bearer ${publicAnonKey}`,
+    'X-App-Role': getAppRole(),
     ...extra,
   };
 }
@@ -356,5 +358,13 @@ export const checklistService = {
 
   async regenerateInvite(): Promise<any> {
     return apiFetch('/org/regenerate-invite', { method: 'POST', body: '{}' });
+  },
+
+  async getOrgSettings(): Promise<{ org?: unknown }> {
+    return apiFetch('/org/settings', { method: 'GET' });
+  },
+
+  async getOrgRoster(): Promise<{ roster: unknown[] }> {
+    return apiFetch('/org/roster', { method: 'GET' });
   },
 };

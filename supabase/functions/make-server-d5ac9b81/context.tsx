@@ -145,6 +145,7 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
 
 /** Shared guest identity when the client sends `Authorization: Bearer <anon key>` (no user login). */
 const ANON_APP_USER_ID = "00000000-0000-4000-8000-000000000001";
+const ANON_OPERATOR_USER_ID = "00000000-0000-4000-8000-000000000002";
 const ANON_TENANT_ID = "tenant_anonymous_shared";
 
 const ANON_DEFAULT_TEAMS = [
@@ -215,15 +216,51 @@ async function ensureAnonymousUserProfile(): Promise<UserProfile> {
   return profile;
 }
 
+/** Operator row for role-picker mode (same tenant as anonymous manager). */
+async function ensureAnonymousOperatorProfile(): Promise<UserProfile> {
+  await ensureAnonymousUserProfile();
+  const existing = await getUserProfile(ANON_OPERATOR_USER_ID);
+  if (existing) return existing;
+
+  const profile: UserProfile = {
+    userId: ANON_OPERATOR_USER_ID,
+    email: "operator@local",
+    tenantId: ANON_TENANT_ID,
+    appRole: "user",
+    displayName: "Operator",
+    updatedAt: Date.now(),
+  };
+  await kv.set(`user_profile:${ANON_OPERATOR_USER_ID}`, profile);
+
+  const rosterEntry = {
+    userId: ANON_OPERATOR_USER_ID,
+    email: profile.email,
+    displayName: profile.displayName || "Operator",
+    siteLocationId: ANON_DEFAULT_SITES[0].id,
+    teamId: ANON_DEFAULT_TEAMS[0].id,
+    shiftId: ANON_DEFAULT_SHIFTS[0].id,
+    appRole: "user" as AppRole,
+    updatedAt: Date.now(),
+  };
+  await kv.set(`tenant_roster:${ANON_TENANT_ID}:${ANON_OPERATOR_USER_ID}`, rosterEntry);
+  return profile;
+}
+
 export async function loadRequestContext(
   authHeader: string | undefined,
   apikeyHeader?: string,
   requestUrl?: string,
+  appRoleHeader?: string,
 ): Promise<{ jwt: { sub: string; email: string }; profile: UserProfile | null } | null> {
   const anonKey = (apikeyHeader || Deno.env.get("SUPABASE_ANON_KEY") || FALLBACK_SUPABASE_ANON_KEY || "").trim();
   if (authHeader?.startsWith("Bearer ") && anonKey) {
     const token = authHeader.slice(7).trim();
     if (token === anonKey) {
+      const role = (appRoleHeader || "manager").toLowerCase().trim();
+      if (role === "user") {
+        const profile = await ensureAnonymousOperatorProfile();
+        return { jwt: { sub: ANON_OPERATOR_USER_ID, email: profile.email }, profile };
+      }
       const profile = await ensureAnonymousUserProfile();
       return { jwt: { sub: ANON_APP_USER_ID, email: profile.email }, profile };
     }
