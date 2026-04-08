@@ -57,6 +57,8 @@ type AppSessionValue = {
   org: TenantOrg | null;
   roster: RosterEntry[];
   loading: boolean;
+  /** Set when /auth/me fails so the UI can show a useful hint (not just "check network"). */
+  sessionError: string | null;
   refreshMe: () => Promise<void>;
 };
 
@@ -64,23 +66,64 @@ const AppSessionContext = createContext<AppSessionValue | null>(null);
 
 const EDGE_API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-d5ac9b81`;
 
-async function fetchMe(): Promise<MeResponse | null> {
-  const headers = {
+/** Supabase Edge usually strips the function name from the path (`/auth/me`). Older setups use `/make-server-d5ac9b81/auth/me`. */
+const AUTH_ME_PATHS = ["/auth/me", "/make-server-d5ac9b81/auth/me"];
+
+async function fetchMe(): Promise<{ data: MeResponse | null; error: string | null }> {
+  const headers: Record<string, string> = {
     apikey: publicAnonKey,
     Authorization: `Bearer ${publicAnonKey}`,
   };
-  const tryBase = async (base: string) => {
-    const b = base.replace(/\/$/, "");
-    const res = await fetch(`${b}/auth/me`, { headers });
-    if (!res.ok) return null;
-    return res.json() as Promise<MeResponse>;
-  };
 
-  let data = await tryBase(SERVER_URL);
-  if (!data && SERVER_URL !== EDGE_API_BASE) {
-    data = await tryBase(EDGE_API_BASE);
+  const bases = [SERVER_URL, EDGE_API_BASE].map((b) => b.replace(/\/$/, ""));
+  const uniqueBases = [...new Set(bases)];
+
+  let lastDetail = "Unknown error";
+
+  for (const base of uniqueBases) {
+    for (const path of AUTH_ME_PATHS) {
+      const url = `${base}${path}`;
+      try {
+        const res = await fetch(url, { headers });
+        const bodyText = await res.text();
+        let body: { error?: string; message?: string } = {};
+        try {
+          body = bodyText ? (JSON.parse(bodyText) as typeof body) : {};
+        } catch {
+          /* not JSON */
+        }
+
+        if (!res.ok) {
+          lastDetail =
+            res.status === 401
+              ? `401 Unauthorized at ${path} — Edge function may reject the anon key; set SUPABASE_ANON_KEY secret to match your project anon key and redeploy.`
+              : res.status === 404
+                ? `404 at ${path} — function URL or route mismatch. Redeploy \`make-server-d5ac9b81\` from the repo.`
+                : `HTTP ${res.status} at ${path}${body.error || body.message ? `: ${body.error || body.message}` : ""}`;
+          continue;
+        }
+
+        const data = JSON.parse(bodyText || "{}") as MeResponse;
+        if (!data?.user) {
+          lastDetail = "Invalid response from API (missing user)";
+          continue;
+        }
+        if (!data.profile) {
+          lastDetail =
+            "API returned no workspace profile. Redeploy the latest Edge function (anonymous guest bootstrap).";
+          continue;
+        }
+        return { data, error: null };
+      } catch (e) {
+        lastDetail =
+          e instanceof TypeError && String(e.message).includes("fetch")
+            ? `Network error calling ${url} — offline, wrong URL, or blocked.`
+            : String(e);
+      }
+    }
   }
-  return data;
+
+  return { data: null, error: lastDetail };
 }
 
 export function AppSessionProvider({ children }: { children: ReactNode }) {
@@ -88,19 +131,23 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
   const [org, setOrg] = useState<TenantOrg | null>(null);
   const [roster, setRoster] = useState<RosterEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sessionError, setSessionError] = useState<string | null>(null);
 
   const refreshMe = useCallback(async () => {
     setLoading(true);
+    setSessionError(null);
     try {
-      const data = await fetchMe();
+      const { data, error } = await fetchMe();
       if (data) {
         setProfile(data.profile);
         setOrg(data.org);
         setRoster(data.roster ?? []);
+        setSessionError(null);
       } else {
         setProfile(null);
         setOrg(null);
         setRoster([]);
+        setSessionError(error);
       }
     } finally {
       setLoading(false);
@@ -117,9 +164,10 @@ export function AppSessionProvider({ children }: { children: ReactNode }) {
       org,
       roster,
       loading,
+      sessionError,
       refreshMe,
     }),
-    [profile, org, roster, loading, refreshMe],
+    [profile, org, roster, loading, sessionError, refreshMe],
   );
 
   return <AppSessionContext.Provider value={value}>{children}</AppSessionContext.Provider>;

@@ -25,7 +25,7 @@ type AppView =
   | "users";
 
 export default function App() {
-  const { profile, loading, roster, org, refreshMe } = useAppSession();
+  const { profile, loading, roster, org, refreshMe, sessionError } = useAppSession();
   const [view, setView] = useState<AppView>("dashboard");
   const [navOpen, setNavOpen] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -60,7 +60,12 @@ export default function App() {
   if (!profile) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-50 p-6">
-        <p className="text-gray-700 text-center max-w-md">Could not load workspace. Check your network and API URL.</p>
+        <p className="text-gray-700 text-center max-w-md font-medium">Could not load workspace</p>
+        {sessionError ? (
+          <p className="text-sm text-gray-600 text-center max-w-lg whitespace-pre-wrap">{sessionError}</p>
+        ) : (
+          <p className="text-sm text-gray-500 text-center max-w-md">Check your network and API URL.</p>
+        )}
         <button
           type="button"
           onClick={() => void refreshMe()}
