@@ -1,6 +1,6 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
 import { DndProvider, useDrag, useDrop } from "react-dnd";
-import { HTML5Backend } from "react-dnd-html5-backend";
+import { getChecklistStep2DndBackend, getChecklistStep2DndOptions } from "../lib/dndBackend";
 import { SectionCard } from "./SectionCard";
 import { FieldConfigPanels } from "./FieldConfigPanels";
 import { TriggerBuilder } from "./TriggerBuilder";
@@ -264,7 +264,7 @@ function PaletteItem({ field }: { field: FieldTypeDef }) {
   return (
     <div
       ref={drag as unknown as React.RefObject<HTMLDivElement>}
-      className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border border-transparent hover:border-gray-100 hover:bg-gray-50/80 cursor-grab active:cursor-grabbing transition-all duration-100 select-none group ${isDragging ? "opacity-25 scale-95" : ""}`}
+      className={`touch-none flex items-center gap-2.5 px-3 py-2 rounded-xl border border-transparent hover:border-gray-100 hover:bg-gray-50/80 cursor-grab active:cursor-grabbing transition-all duration-100 select-none group ${isDragging ? "opacity-25 scale-95" : ""}`}
     >
       <span className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${c.bg} ${c.text}`}>
         {field.icon}
@@ -310,7 +310,7 @@ function LibraryItem({
   return (
     <div
       ref={drag as unknown as React.RefObject<HTMLDivElement>}
-      className={`group/lib flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-indigo-100 bg-indigo-50/40 hover:border-indigo-200 hover:bg-indigo-50/70 cursor-grab active:cursor-grabbing transition-all duration-100 select-none ${isDragging ? "opacity-25 scale-95" : ""}`}
+      className={`touch-none group/lib flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-indigo-100 bg-indigo-50/40 hover:border-indigo-200 hover:bg-indigo-50/70 cursor-grab active:cursor-grabbing transition-all duration-100 select-none ${isDragging ? "opacity-25 scale-95" : ""}`}
     >
       {/* Icon with small library badge */}
       <div className="relative shrink-0">
@@ -1720,14 +1720,17 @@ function Step2Inner({ onBack, onNext, canvasFields, setCanvasFields, onOpenNav }
 }
 
 export function ChecklistStep2(props: ChecklistStep2Props) {
+  const dndBackend = useMemo(() => getChecklistStep2DndBackend(), []);
+  const dndOptions = useMemo(() => getChecklistStep2DndOptions(), []);
+
   return (
     <>
       {/* Mobile */}
       <div className="block sm:hidden">
         <Step2Mobile {...props} />
       </div>
-      {/* Desktop */}
-      <DndProvider backend={HTML5Backend}>
+      {/* Tablet / desktop: TouchBackend on touch devices, HTML5Backend otherwise */}
+      <DndProvider backend={dndBackend} options={dndOptions}>
         <Step2Inner {...props} />
       </DndProvider>
     </>
