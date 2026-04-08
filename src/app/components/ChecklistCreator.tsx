@@ -26,10 +26,14 @@ export function ChecklistCreator({
   assignTeamOptions,
 }: ChecklistCreatorProps) {
   const [step, setStep] = useState(1);
-  const [checklistId, setChecklistId] = useState(existingChecklistId || '');
+  const [checklistId, setChecklistId] = useState(
+    () => existingChecklistId ?? `checklist_${Date.now()}_${crypto.randomUUID()}`,
+  );
   // Ref keeps the ID current *immediately* after first creation so the next
-  // debounced save (before the state re-render) calls PUT instead of POST.
-  const checklistIdRef = useRef(existingChecklistId || '');
+  // debounced save (before the state re-render) uses the right id.
+  const checklistIdRef = useRef(checklistId);
+  /** False until the first POST /checklists succeeds — first save must be POST, not PUT. */
+  const serverHasDraftRef = useRef(!!existingChecklistId);
   // Set both ref and state together
   const applyChecklistId = (id: string) => {
     checklistIdRef.current = id;
@@ -89,13 +93,14 @@ export function ChecklistCreator({
         // hasn't re-rendered yet after the first createDraft call.
         const currentId = checklistIdRef.current;
 
-        if (!currentId) {
-          const newDraft = await checklistService.createDraft(data, bypass);
+        if (!serverHasDraftRef.current) {
+          const payload = currentId ? { ...data, id: currentId } : data;
+          const newDraft = await checklistService.createDraft(payload as any, bypass);
           applyChecklistId(newDraft.id);
+          serverHasDraftRef.current = true;
           return newDraft;
-        } else {
-          return await checklistService.saveChecklist(currentId, data, bypass);
         }
+        return await checklistService.saveChecklist(currentId, data, bypass);
       },
 
       onConflict: async (local, server) => {

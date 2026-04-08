@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { DuplicateChecklistError } from '../services/checklistService';
+import { DuplicateChecklistError, SERVER_URL } from '../services/checklistService';
 
 export interface ChecklistVersion {
   id: string;
@@ -231,8 +231,10 @@ export function useAutosave<T>(
         return;
       }
       try {
-        // Lightweight reachability probe via HEAD on the same origin
-        await fetch(window.location.origin + '/favicon.ico', { method: 'HEAD', cache: 'no-store' });
+        // Probe the checklist API (Vercel favicon HEAD does not mean Edge is up)
+        const probe = `${String(SERVER_URL).replace(/\/$/, "")}/health`;
+        const res = await fetch(probe, { method: "GET", cache: "no-store" });
+        if (!res.ok) return;
         isOnlineRef.current = true;
         clearInterval(reconnectTimerRef.current);
         reconnectTimerRef.current = undefined;
