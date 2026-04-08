@@ -57,6 +57,8 @@ interface RealChecklist {
   updatedAt: number;
   validFrom?: string;
   category?: string;
+  /** Local: which calendar day to show this on (validFrom or createdAt) */
+  calendarDayMs: number;
 }
 
 function startOfDay(date: Date): number {
@@ -65,6 +67,36 @@ function startOfDay(date: Date): number {
 function toMidnight(ts: number): number {
   const d = new Date(ts);
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+function parseValidFromMs(s: string | undefined): number | null {
+  if (!s || typeof s !== "string") return null;
+  const t = Date.parse(s);
+  return Number.isFinite(t) ? t : null;
+}
+
+function normalizeChecklistRow(raw: any): RealChecklist {
+  const createdAt =
+    typeof raw?.createdAt === "number"
+      ? raw.createdAt
+      : typeof raw?.updatedAt === "number"
+        ? raw.updatedAt
+        : Date.now();
+  const fromValid = parseValidFromMs(raw?.validFrom);
+  const calendarDayMs = fromValid != null ? fromValid : createdAt;
+  return {
+    id: raw.id,
+    title: raw.title ?? "Untitled",
+    status: raw.status ?? "draft",
+    location: raw.location,
+    frequency: raw.frequency,
+    priority: raw.priority,
+    createdAt,
+    updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : createdAt,
+    validFrom: raw.validFrom,
+    category: raw.category,
+    calendarDayMs,
+  };
 }
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -91,7 +123,8 @@ export function CalendarView() {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      setChecklists(data.checklists ?? []);
+      const rows = Array.isArray(data.checklists) ? data.checklists : [];
+      setChecklists(rows.map(normalizeChecklistRow));
     } catch (err: any) {
       setError(err.message ?? "Failed to load checklists");
     } finally {
@@ -116,8 +149,8 @@ export function CalendarView() {
 
   const getItemsForDate = (date: Date): RealChecklist[] =>
     checklists
-      .filter((cl) => toMidnight(cl.createdAt) === startOfDay(date))
-      .sort((a, b) => a.createdAt - b.createdAt);
+      .filter((cl) => toMidnight(cl.calendarDayMs) === startOfDay(date))
+      .sort((a, b) => a.calendarDayMs - b.calendarDayMs);
 
   const isToday = (date: Date) => startOfDay(date) === startOfDay(today);
   const isSelected = (date: Date) => startOfDay(date) === startOfDay(selectedDay);

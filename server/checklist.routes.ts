@@ -47,6 +47,14 @@ async function getByPrefixWithRetry(prefix: string, retries = 2, delayMs = 150):
   throw lastErr;
 }
 
+function resolveAssigneeUserId(raw: unknown): string | null {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) return s;
+  return "00000000-0000-4000-8000-000000000002";
+}
+
 async function createAssignment(
   tenantId: string,
   checklistId: string,
@@ -355,8 +363,9 @@ app.post("/checklists/:id/publish", async (c) => {
     await kv.set(tenantKey("checklist", ctx.tenantId, checklistId), published);
     await kv.set(tenantKey("checklist_meta", ctx.tenantId, checklistId), checklistMeta(published));
 
-    if (published.assignedTo) {
-      await createAssignment(ctx.tenantId, checklistId, published.assignedTo, ctx.userId);
+    const assigneeId = resolveAssigneeUserId(published.assignedTo);
+    if (assigneeId) {
+      await createAssignment(ctx.tenantId, checklistId, assigneeId, ctx.userId);
     }
 
     console.log(`Checklist published: ${checklistId}`);
@@ -399,13 +408,17 @@ app.post("/assignments", async (c) => {
       return c.json({ error: "Only managers can create assignments" }, 403);
     }
     const { checklistId, assignedTo, dueDate } = await c.req.json();
-    if (!checklistId || !assignedTo) {
+    if (!checklistId || assignedTo == null || String(assignedTo).trim() === "") {
       return c.json({ error: "Missing required fields: checklistId, assignedTo" }, 400);
+    }
+    const assigneeId = resolveAssigneeUserId(assignedTo);
+    if (!assigneeId) {
+      return c.json({ error: "Invalid assignedTo" }, 400);
     }
     const checklistExists = await kv.get(tenantKey("checklist", ctx.tenantId, checklistId));
     if (!checklistExists) return c.json({ error: "Checklist not found" }, 404);
 
-    const assignment = await createAssignment(ctx.tenantId, checklistId, assignedTo, ctx.userId);
+    const assignment = await createAssignment(ctx.tenantId, checklistId, assigneeId, ctx.userId);
     if (dueDate) {
       (assignment as any).dueDate = dueDate;
       await kv.set(tenantKey("assignment", ctx.tenantId, assignment.id), assignment);
@@ -553,20 +566,18 @@ app.post("/submissions", async (c) => {
     const checklist = checklistReadable;
     if (checklist?.validateChecklist) {
       const managerId =
-        typeof checklist.managerUserId === "string" && checklist.managerUserId
-          ? checklist.managerUserId
+        typeof checklist.managerUserId === "string" && checklist.managerUserId.trim()
+          ? checklist.managerUserId.trim()
           : typeof checklist.managerName === "string" && checklist.managerName.startsWith("user_")
             ? checklist.managerName
-            : null;
-      if (managerId) {
-        await createNotification(ctx.tenantId, {
-          userId: managerId,
-          type: "validation_required",
-          checklistId,
-          submissionId,
-          message: "A checklist was submitted for validation",
-        });
-      }
+            : ctx.userId;
+      await createNotification(ctx.tenantId, {
+        userId: managerId,
+        type: "validation_required",
+        checklistId,
+        submissionId,
+        message: "A checklist was submitted for validation",
+      });
     }
 
     console.log(`Submission created: ${submissionId}`);
