@@ -230,10 +230,12 @@ export function useAutosave<T>(
         anyErr?.body?.error ||
         anyErr?.body?.message ||
         anyErr?.body?.details ||
+        anyErr?.details ||
         (err instanceof Error ? err.message : null) ||
+        String(err) ||
         'Failed to save';
       setError(String(detailed));
-      console.error('Autosave error:', err);
+      console.error('[useAutosave] Final error after all retries:', detailed, 'full error object:', err);
     }
   }, [checklistId, version, onSave, onConflict, enableOffline]);
 

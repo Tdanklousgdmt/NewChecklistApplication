@@ -64,11 +64,12 @@ async function apiFetch(endpoint: string, options: RequestInit = {}) {
   try { body = await response.json(); } catch { /* no body */ }
 
   if (!response.ok) {
-    const errMsg = body?.error || body?.message || `HTTP ${response.status}`;
-    console.error(`[API] ❌ Error ${method} ${endpoint}:`, body);
+    const errMsg = body?.error || body?.message || body?.details || `HTTP ${response.status}`;
+    console.error(`[API] ❌ Error ${method} ${endpoint}: status=${response.status}, body=`, body, 'message:', errMsg);
     const err: any = new Error(errMsg);
     err.status  = response.status;
     err.body    = body;
+    err.details = body?.details;
     throw err;
   }
 
@@ -133,18 +134,21 @@ export const checklistService = {
 
     let response: any;
     try {
+      console.log('[checklistService] Creating draft with payload:', checklistData);
       response = await apiFetch('/checklists', {
         method: 'POST',
         body: JSON.stringify(checklistData),
       });
+      console.log('[checklistService] Create draft response:', response);
     } catch (error: any) {
+      console.error('[checklistService] Create draft failed:', error.message, 'status:', error.status, 'body:', error.body);
       if (error.status === 409 && error.body?.conflictType === 'duplicate') {
         throw new DuplicateChecklistError(error.body?.duplicate ?? null);
       }
       throw error;
     }
 
-    if (!response.success) throw new Error(response.error || 'Failed to create checklist');
+    if (!response.success) throw new Error(response.error || response.details || 'Failed to create checklist');
     const checklist = response.checklist;
     return { id: checklist.id, version: checklist.version, updatedAt: checklist.updatedAt, data: checklist };
   },
