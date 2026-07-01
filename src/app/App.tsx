@@ -10,7 +10,7 @@ import { NavDrawer } from "./components/NavDrawer";
 import { QRScannerModal } from "./components/QRScannerModal";
 import { RoleSelection } from "./components/RoleSelection";
 import { UserManagementScreen } from "./components/UserManagementScreen";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 import { getStoredAppRole, setAppRole, clearAppRole, type AppRole } from "./lib/appRole";
 import { DEMO_MANAGER_USER_ID, DEMO_OPERATOR_USER_ID } from "./lib/demoWorkspaceIds";
 type AppView =
@@ -113,6 +113,11 @@ export default function App() {
   const openNav = () => setNavOpen(true);
 
   const handleNavNavigate = (dest: "dashboard" | "library" | "create" | "reports" | "users") => {
+    if ((dest === "create" || dest === "library" || dest === "reports" || dest === "users") && role !== "manager") {
+      toast.error("Only managers can access this section.");
+      return;
+    }
+
     setActiveChecklistId(null);
     setActiveAssignmentId(null);
     setActiveRedoSubmissionId(null);
@@ -293,7 +298,13 @@ export default function App() {
         key={notificationUserId}
         role={role}
         notificationUserId={notificationUserId}
-        onCreateNew={() => setView("create")}
+        onCreateNew={() => {
+          if (role !== "manager") {
+            toast.error("Only managers can create checklists.");
+            return;
+          }
+          setView("create");
+        }}
         onExecuteChecklist={(checklistId, assignmentId, redoSubmissionId) => {
           setActiveChecklistId(checklistId);
           setActiveAssignmentId(assignmentId ?? null);
@@ -308,8 +319,8 @@ export default function App() {
           setActiveSubmissionId(submissionId);
           setView("validate");
         }}
-        onOpenLibrary={() => setView("library")}
-        onOpenReports={() => setView("reports")}
+        onOpenLibrary={role === "manager" ? () => setView("library") : undefined}
+        onOpenReports={role === "manager" ? () => setView("reports") : undefined}
         onOpenNav={openNav}
       />
       <Toaster position="top-right" richColors />

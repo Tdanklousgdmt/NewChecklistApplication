@@ -339,15 +339,17 @@ export function ChecklistDashboardReal({
               <span className="hidden sm:inline">Reports</span>
             </button>
           )}
-          <button
-            type="button"
-            onClick={onCreateNew}
-            className="flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-[#2abaad] text-white rounded-xl text-xs tracking-wide hover:bg-[#24a699] transition-colors shadow-sm shadow-teal-100"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Create New</span>
-            <span className="sm:hidden">New</span>
-          </button>
+          {role === "manager" && (
+            <button
+              type="button"
+              onClick={onCreateNew}
+              className="flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-[#2abaad] text-white rounded-xl text-xs tracking-wide hover:bg-[#24a699] transition-colors shadow-sm shadow-teal-100"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Create New</span>
+              <span className="sm:hidden">New</span>
+            </button>
+          )}
         </div>
       </header>
 
