@@ -8,6 +8,7 @@ interface AutosaveIndicatorProps {
   isOnline: boolean;
   error?: string | null;
   onDismissError?: () => void;
+  onRetrySave?: () => void;
 }
 
 export function AutosaveIndicator({
@@ -17,6 +18,7 @@ export function AutosaveIndicator({
   isOnline,
   error,
   onDismissError,
+  onRetrySave,
 }: AutosaveIndicatorProps) {
   const getTimeAgo = (timestamp: number | null) => {
     if (!timestamp) return '';
@@ -72,7 +74,17 @@ export function AutosaveIndicator({
         {status === 'error' && (
           <div className="flex items-center gap-2 px-2 py-1 bg-red-50 border border-red-200 rounded-lg">
             <AlertTriangle className="w-3.5 h-3.5 text-red-600" />
-            <span className="text-xs text-red-600 font-medium">Save failed</span>
+            <span className="text-xs text-red-600 font-medium">
+              {error ? `Save failed: ${error}` : 'Save failed'}
+            </span>
+            {onRetrySave && (
+              <button
+                onClick={onRetrySave}
+                className="ml-1 text-[10px] font-semibold text-red-700 hover:text-red-900 transition-colors"
+              >
+                Retry
+              </button>
+            )}
             {error && onDismissError && (
               <button
                 onClick={onDismissError}

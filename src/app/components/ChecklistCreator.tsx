@@ -209,6 +209,7 @@ export function ChecklistCreator({
           hasUnsavedChanges={hasUnsavedChanges}
           isOnline={isOnline}
           error={error}
+          onRetrySave={forceSave}
         />
       </div>
 

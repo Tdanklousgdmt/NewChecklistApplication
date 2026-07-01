@@ -161,8 +161,18 @@ export function useAutosave<T>(
             saveError?.message === 'NetworkError when attempting to fetch resource.' ||
             saveError?.name === 'TypeError';
 
-          if (isNetworkError) {
-            console.warn('Autosave: network error, queuing for retry:', saveError.message);
+          const statusCode = Number(saveError?.status ?? 0);
+          const isTransientHttpError =
+            statusCode === 429 ||
+            statusCode === 502 ||
+            statusCode === 503 ||
+            statusCode === 504;
+
+          if (isNetworkError || isTransientHttpError) {
+            const reason = isTransientHttpError
+              ? `HTTP ${statusCode}`
+              : (saveError?.message || 'network error');
+            console.warn('Autosave: transient save error, queuing for retry:', reason);
             isOnlineRef.current = false;
             pendingSaveRef.current = dataToSave;
             setSavedData(dataToSave);
@@ -215,7 +225,14 @@ export function useAutosave<T>(
       }
     } catch (err) {
       setStatus('error');
-      setError(err instanceof Error ? err.message : 'Failed to save');
+      const anyErr = err as any;
+      const detailed =
+        anyErr?.body?.error ||
+        anyErr?.body?.message ||
+        anyErr?.body?.details ||
+        (err instanceof Error ? err.message : null) ||
+        'Failed to save';
+      setError(String(detailed));
       console.error('Autosave error:', err);
     }
   }, [checklistId, version, onSave, onConflict, enableOffline]);
