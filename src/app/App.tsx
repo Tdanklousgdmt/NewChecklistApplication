@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { ChecklistDashboardReal } from "./components/ChecklistDashboardReal";
 import { ChecklistLibrary } from "./components/ChecklistLibrary";
+import { StandardLibrary } from "./components/StandardLibrary";
 import { ChecklistDetail } from "./components/ChecklistDetail";
 import { ReportsPage } from "./components/ReportsPage";
 import { ChecklistCreator } from "./components/ChecklistCreator";
@@ -20,6 +21,7 @@ type AppView =
   | "validate"
   | "view"
   | "library"
+  | "standard-library"
   | "checklist-detail"
   | "reports"
   | "users";
@@ -112,8 +114,8 @@ export default function App() {
 
   const openNav = () => setNavOpen(true);
 
-  const handleNavNavigate = (dest: "dashboard" | "library" | "create" | "reports" | "users") => {
-    if ((dest === "create" || dest === "library" || dest === "reports" || dest === "users") && role !== "manager") {
+  const handleNavNavigate = (dest: "dashboard" | "library" | "standard-library" | "create" | "reports" | "users") => {
+    if ((dest === "create" || dest === "library" || dest === "standard-library" || dest === "reports" || dest === "users") && role !== "manager") {
       toast.error("Only managers can access this section.");
       return;
     }
@@ -285,6 +287,17 @@ export default function App() {
           }}
           onOpenNav={openNav}
         />
+        <Toaster position="top-right" richColors />
+      </>
+    );
+  }
+
+  if (view === "standard-library") {
+    return (
+      <>
+        {navDrawer}
+        {qrScanner}
+        <StandardLibrary onOpenNav={openNav} onGoToLibrary={() => setView("library")} />
         <Toaster position="top-right" richColors />
       </>
     );

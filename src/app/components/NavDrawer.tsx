@@ -11,9 +11,10 @@ import {
   BarChart3,
   ScanLine,
   UserCog,
+  ClipboardList,
 } from "lucide-react";
 
-type View = "dashboard" | "library" | "create" | "reports" | "users";
+type View = "dashboard" | "library" | "standard-library" | "create" | "reports" | "users";
 
 interface NavDrawerProps {
   open: boolean;
@@ -35,6 +36,12 @@ const NAV_ITEMS: { view: View; label: string; icon: React.ReactNode; managerOnly
     view: "library",
     label: "Checklist Library",
     icon: <Library className="w-5 h-5" />,
+    managerOnly: true,
+  },
+  {
+    view: "standard-library",
+    label: "Standard Library",
+    icon: <ClipboardList className="w-5 h-5" />,
     managerOnly: true,
   },
   {
@@ -80,6 +87,7 @@ export function NavDrawer({
     currentView === view ||
     (view === "library" && currentView === "checklist-detail") ||
     (view === "reports" && currentView === "reports");
+
 
   return (
     <>
