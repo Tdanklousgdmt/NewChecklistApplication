@@ -59,8 +59,13 @@ app.get("/make-server-d5ac9b81/health", (c) => c.json({ status: "ok" }));
 app.get("/invite-preview", invitePreviewHandler);
 app.get("/make-server-d5ac9b81/invite-preview", invitePreviewHandler);
 
-// Supabase Edge passes the path after the function name (e.g. `/auth/me`, not `/make-server-d5ac9b81/auth/me`).
+// Supabase Edge forwards the path *including* the function name (Hono receives
+// `/make-server-d5ac9b81/checklists`). Mount the routers at both the root and
+// the function-name base path so requests match regardless of how the path is
+// forwarded.
 app.route("/", authRoutes);
 app.route("/", checklistRoutes);
+app.route("/make-server-d5ac9b81", authRoutes);
+app.route("/make-server-d5ac9b81", checklistRoutes);
 
 Deno.serve(app.fetch);
