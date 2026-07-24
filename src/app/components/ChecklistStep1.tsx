@@ -19,7 +19,6 @@ import {
   Repeat,
   Zap,
   Minus,
-  Plus,
   ShieldCheck,
   ShieldOff,
   BookMarked,
@@ -31,7 +30,6 @@ import {
   AlertTriangle,
   TrendingUp,
   Circle,
-  ChevronDown,
 } from "lucide-react";
 import { AssignToModal, formatAssignToLabel } from "./AssignToModal";
 import { LocationModal, formatLocationLabel } from "./LocationModal";

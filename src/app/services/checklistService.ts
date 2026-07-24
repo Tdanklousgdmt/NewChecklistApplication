@@ -1,6 +1,7 @@
 import { ChecklistVersion } from '../hooks/useAutosave';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { getAppRole } from '../lib/appRole';
+import { isDemoMode, mockRouter } from './mockBackend';
 
 /**
  * API base (no trailing slash).
@@ -51,6 +52,21 @@ async function apiFetch(endpoint: string, options: RequestInit = {}) {
     ...buildAuthHeaders(),
     ...((options.headers as Record<string, string>) ?? {}),
   };
+
+  // Local demo backend (no Supabase). See services/mockBackend.ts.
+  if (isDemoMode()) {
+    const parsedBody = typeof options.body === 'string' && options.body ? JSON.parse(options.body) : undefined;
+    const { status, body } = await mockRouter(endpoint, method, parsedBody, headers);
+    if (status >= 400) {
+      const err: any = new Error(body?.error || body?.message || `HTTP ${status}`);
+      err.status = status;
+      err.body = body;
+      err.details = body?.details;
+      throw err;
+    }
+    console.log(`[API:demo] ✓ ${method} ${endpoint}`);
+    return body;
+  }
 
   console.log(`[API] ${method} ${endpoint}`);
 

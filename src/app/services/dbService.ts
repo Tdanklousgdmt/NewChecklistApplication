@@ -7,8 +7,11 @@
  * SQL Editor, or set VITE_SKIP_DIRECT_DB_TABLES=true to avoid the requests.
  */
 import { supabase } from "../../lib/supabaseClient";
+import { isDemoMode } from "./mockBackend";
 
 function skipDirectDbTables(): boolean {
+  // In demo mode there is no live Supabase to query — always use fallbacks.
+  if (isDemoMode()) return true;
   const v = import.meta.env.VITE_SKIP_DIRECT_DB_TABLES;
   return v === "true" || v === "1" || String(v).toLowerCase() === "yes";
 }
